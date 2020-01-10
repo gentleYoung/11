@@ -1,0 +1,314 @@
+5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 
+5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 进行5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 进行5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 进行5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 进行5.5 FAM
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。 
+5.5.1 Main Features 
+FAM的主要特性如下： 
+• 管理片内6K个cell地址，片外32K个cell地址。 
+• 支持缓存链表管理，片内缓存1条链表，片外缓存分为8条链表（每条链表对应DDR的1个BANK）；9条链表共享1块链表RAM。 
+• 响应IPS/PE/EQM的申请缓存请求，IPS/PE申请片内缓存，EQM申请片外缓存。在分配片外缓存时，从8个BANK中轮流分配； 
+• 响应IPS/PE/EQM的建链申请，保存帧内链表，与空闲缓存链表共享1块链表RAM。 
+• 响应PQM/EQM/EPS的帧内链的释放请求。 
+• 响应PQM/ EQM/EPS的帧内链查询请求。 
+• 支持2K个MCID的管理，每个MCID有5bit的IFB权重值和5bit的EFB权重值。 
+• 支持将内置缓存划分为PLB、PEB、IFB三个逻辑空间，支持静态配置这三个逻辑空间的最大可用缓存个数； 
+• 支持统计缓存的总体占用情况； 
+• 支持统计每个源端口进来的报文占用的cell数，可以配置每个端口的流控产生门限和取消门限，并根据配置门限产生流控指示。 
+• 支持CPU间接访问链表RAM（只读）。 
+5.5.2 Terminology 
+The following terms have specific meanings in this section of the document.
+Term 	Description 
+IFB 	Internal Frame Buffer 
+PLB 	Packet Latency Buffer 
+PEB 	Packet Edit Buffer 
+EFB 	External Frame Buffer 
+FAM 	Free Address Manager 
+IPS 	Ingress Port Schedule 
+EPS 	Egress Port Schedule 
+PE 	Packet Edit 
+PQM 	Packet Queue Manager 
+EQM 	Egress Queue Manager 
+5.5.3 FAM Overview 
+5.5.3.1 链表结构
+第一张图
+
+
+FAM需要维护32K 个外置cell 和6K 个内置cell 地址，因此链表深度为32K+6K，地址位宽为16bit。地址0~7FFF 为外置缓存空间，8000~97FF 为内置缓存空间。 
+5.5.3.2 EFB 地址映射 
+为提高DDR 带宽利用率，将EFB 按DDR bank 划分为8 条空闲链，以EFB Cell 地址的低3bit 来区分不同的bank。申请时轮询8 条链分配空闲地址，释放回收地址是按地址低3bit 来回收到各自bank。这样，当一个报文占用多个cell 时，占用多个bank 的概率就很大， 读写DDR 会交织bank 读写。 
+因为共支持32K Cell，所以EFB Cell 地址空间：0~7FFF ，其中 
+• Bank0 Cell 地址：0~8~16~24~32…（共4K 个） 
+• Bank1 Cell 地址：1~9~17~25~33…（共4K 个） 
+• . 
+• . 
+• . 
+• Bank2 Cell 地址：7~15~23~31~39…（共4K 个） 
+
+EFB Cell 大小可配置为512B 或者1024B，所以Cell 内地址宽度为9/10bit。
+5.5.3.3 权重管理
+
+第二张图
+
+
+对于组播报文，为节省缓存空间占用，以及从PLB 到PEB，从PEB 到EFB 的搬运动作， 所以对于组播只进行Head 编辑的情况下，只有组播第一个报文，才会搬运整个报文（包括Head 和Body），组播中间报文和尾报文，仅搬运Head，并和首报文的Body 链接在一起，Body 不再搬运。 
+另外，因为组播报文，可能存在部分叶子报文在IFB，部分叶子报文在EFB 的情况，为了避免内外置缓存的交叉链接（交叉链接会导致EPS 等模块处理复杂），每个组播报文在IFB 或者EFB 中的第一份叶子报文会整包搬运（携带Body），后面的叶子报文只搬运Head，和第一份叶子报文的Body 进行链接。 
+Cell 链表RAM中每个地址条目没有权重值，为保证组播报文的地址不被提前释放而造成组播报文丢失，通过MCID 进行
