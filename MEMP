@@ -1,0 +1,96 @@
+5.6 MEMORY POOL(MEMP)
+Memory Pool（MEMP）是芯片内置的用于缓存报文的空间。数据通道中的多个处理环节分别需要大容量的内置Memory来临时存储报文数据，我们将这些Memory集中放置在MEMP模块，实现资源共享，通过灵活配置，应付各种应用场景。
+MEMP在逻辑上分为PLB、PEB和IFB三部分缓存空间，其中PLB用于缓存入端口报文（PE前）；PEB用于缓存PE编辑之后、进出口队列之前的报文；IFB用于缓存 出端口队列报文（存于片内的部分）。
+5.6.1 Main Features
+MEMP的主要特性如下：
+ 支持4写5读并行操作，内部按照读写地址冲突与否进行串行或并行操作；
+ 读写冲突时，按指定优先级顺序执行；
+ MEMP由5个单端口SRAM构成，每个SRAM位宽为128bit；
+ MEMP在逻辑上以160Byte的cell为空间进行划分；
+ 共支持6K个cell，划分为PLB、PEB和IFB三个缓存空间，通过上电初始化配置，可以灵活改变三个缓存空间的容量大小；
+ 支持业务接口burst方式的读操作；
+ 支持CPU直接访问MEMP，读写数据位宽为32bit；
+5.6.2 Terminology
+The following terms have specific meanings in this section of the document.
+Term Description
+PLB
+Packet Latency Buffer
+IFB
+Internal Frame Buffer
+PEB
+Packet Edit Buffer
+ECC
+Error Correction Code
+Table 5.6-1 MEMP Terminology
+5.6.3 MEMP Overview
+Figure 5.6-1 MEMP 的逻辑划分
+5 个读写模块完成3 写（IPS 写整包，PQM写FD，PE 写整包或Head）5 读（IPS 读
+Head，PQM读Head 或部分Body，PQM读整包或Head，EQM读整包或Head，EPS 读整
+包）操作，加上CPU 读写接口，共4 写6 读。
+读写仲裁模块（MEMP_RW_ARB）根据各个读写命令操作的地址，完成5 块SRAM的读
+写命令的分发，并配置到各个SRAM的读写端口上。
+MEMP 由5 个位宽128bit 的SRAM组成，逻辑上每一行地址为80B，每二行设计为一个
+CELL（每个CELL 就是160B）。
+数据存储方式和FAM 的地址分配相关，报文缓存在多个cell 时，由链表进行管理。
+5.6.4 Service Module Access
+MEMP 对接收10 个读写请求来源的处理优先级可配置，默认顺序为：
+IPS_WR > PQM_WR_FD > EPS_RD(ID0==ID1==ID2==ID3) > PE_WR > IPS_RD >
+(PQM_RD==PQM_RD_HD) > EQM_RD > CPU；
+Figure 5.6-2 外部模块对MEMP 的访问示意图
+5.6.4.1 IPS Write and Read
+IPS 模块对PLB 的操作，一写一读。
+一写：IPS 将接收报文数据完整写入PLB；
+一读：读取128Byte Head 给HA 模块解析。
+5.6.4.2 PQM Write and Read
+PQM模块对PLB 的操作，一写二读。
+一写：HA 解析出PSA 需要的FD 信息，存入报文第一个cell 的前32Byte。
+一读：读取报文Head cell 给PSA。支持PSA 通过PullMore 指令申请读取Body；
+二读：如果是组播非第一个报文，只读取报文Head cell 给PE；否则读取整个报文给
+PE。
+5.6.4.3 PE Write
+PE 模块对IFB 的操作，一写。
+一写：无论报文存储目的地为IFB 或EFB，先将编辑后的报文写入IFB。
+5.6.4.4 EQM Read
+EQM模块对IFB 的操作，一读。
+一读：EQM对出口Buffer 组调度，分析报文存储目的地，如果为EFB，则从IFB 读出。
+5.6.4.5 EPS Read
+EPS 模块对IFB 的操作，一读。
+一读：读取整包报文数据，分发给目的接口。
+5.6.4.6 Burst Mode Read
+所有业务接口（IPS/PQM/EQM/EPS）的读操作，支持Burst模式。每个读操作命令包含起始地址和Burst长度，读操作处理模块会根据读命令中的burst长度分解成若干个读操作，从而节省外部接口的读命令个数。
+5.6.5 Control Processor Access
+MEMP模块有两组CP接口，其中接口一的读写范围为512KB，地址空间兼容511x系列芯片；接口二为新增接口，主要针对MEMP RAM的读写，访问空间为MEMP全部可用空间，接口二主要应用在启动或者Debug场景。
+一写：写任意地址任意数据。
+一读：读任意地址的数据。
+在Debug模式下，允许CPU以直接寻址的方式读写MEMP中的内容，32bit/16bit/8bit为访问粒度，不影响芯片的正常工作。
+CPU访问地址和CELL地址是一个逆序的对应关系，假如按字节访问粒度，CPU的0地址对应960K*160-1的CELL地址，1地址对应960K*160-2的CELL地址，其他CPU访问地址以此类推。
+在芯片安全启动时，Boot阶段，作为启动RAM，支持CPU以32bit/16bit/8bit为粒度的读写控制。
+5.6.6 Error Handling
+MEMP数据仅FD数据做带内ECC校验，这个由外部访问模块完成，其他数据不做校验。
+5.6.7 Initialization
+支持上电初始化。
+5.6.8 Capacity
+MEMP缓存空间支持6144个160Byte的cell。
+5.6.9 Performance
+5.6.9.1 Throughput
+MEMP的最高工作时钟为250MHz，内部5个SRAM的端口可同时操作，最高效率情况下，总带宽为250*5=1250Mlps（lines per second）。如下表可以看出，当不采用RAM交织方式的情况下，RAM0的读写次数明显高于其它RAM，从而导致RAM的频率需求超过250MHz。
+Figure 5.6-3 性能分析数据
+参考：如下为不同报文长度情况下，每个RAM的读写次数统计。
+采用RAM交织方式，可以提升MEMP的效率：
+Figure 5.6-4 MEMP RAM交织示意图
+ MEMP 内部包含5 块RAM（物理上的），每块RAM的位宽为128bit；
+ 每个CELL 为160BYTE，分成10 个128bit；每个128bit 分别用0-9 表示其偏移
+(offset)；
+ 为了提高特殊包长对RAM的访问效率，如64BYTE 的包长，RAM 的访问根据CELL
+地址和CELL 内部数据偏移决定每个128BIT 在RAM中的存储位置，如上图所示。具
+体计算方法如下：
+RAM地址：{CELL_ADDR,1’b0} + offset/5；
+RAM选择：(CELL_ADDR%5 + offset)%5;
+通过这种方法就可以让不同CELL 地址、不同offset 的数据写到不同RAM 上去，充分利
+用RAM的带宽。
+在采用RAM交织方式后，最佳效率情况下，对RAM的频率需求远低于250MHZ。
+经过ESL 仿真分析，MEMP 性能可以满足项目性能需求。
+5.6.9.2 Latency
+通常情况下，参见各接口通道的优先级顺序（5.6.4），读操作的优先级相对于写操作低，在各端口操作同一个SRAM时，读数据返回最坏情况下需要8个时钟周期，写操作的完成最坏情况下需要5个时钟周期。
+因为SRAM访问的调度采用的是SP调度，所以如果高优先级通道在瞬间流量比较大的情况下，低优先级通道的延时会相应增加。
+对于CPU访问，由于优先级最低，相对延时大些。
