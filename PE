@@ -1,0 +1,174 @@
+5.7 PACKET EDITOR (PE)
+PE 模块从Quark 接收EC（Edit Command）和ED（Edit Data），存储到内部的Buffer
+中。PE 从PQM接收原始报文数据，根据编辑命令（EC）对报文进行编辑。在申请到
+FAM（Free Address Manager）的缓存地址之后，将编辑完成的报文数据写入内部缓存
+IFB（Internal Frame Buffer）中，最后将报文的FCB（Frame Control Block）送给EQM
+（Egress Queue Manager）模块处理。
+下图是PE 模块与外部模块的接口关系。
+Figure 5.7-1 PE 与外面模块接口图
+5.7.1 Main Feature
+PE 模块的主要特性描述如下：
+ 顺序执行ECB（Edit Command Buffer）中的命令，命令类型如下：
+o ADD：添加长度为0~48Bytes 的数据到原始报文中的指定位置；
+o REPLACE：把0~128Bytes 的连续字段，替换成0~48Bytes 的新数据；
+o KEEP：保持最多16383Bytes 数据的原始数据；
+o REMOVE：删除最多16383Bytes 数据的原始数据。
+ 支持当编辑命令（Edit Command）没有覆盖整个原始报文数据的时候，根据Quark
+过来的指示自动生成剩下原始报文的KEEP/REMOVE 命令。
+o 当EDIT_INFO 的TXTOEND 标记无效的时候，对EC 命令没有覆盖的报文段，
+全部删除；如果有TXTOEND 标记有效的时候，PE 保持剩下的报文传输。
+ 支持剥离报文最后4 字节。
+o 当EDIT_INFO 的REMOVE_LAST 标记为1 时删除报文的最后4 个字节；当
+REMOVE_LAST 标记为0 时，不进行任何操作。
+ 支持IP头的TTL(Time To Live)/HL(Hop Limit)的修改。
+ 支持对TPID的修改，最多支持四层TAG同时修改。
+ 支持三组Checksum计算，分别是IPv4头、TCP/UDP和一组扩展的Checksum。
+ 支持对报文打上时戳。
+5.7.2 Terminology
+Term Description
+EC Edit Command.编辑命令，由Atom发给PE用来指示对报文进行修改，每个EC可以携带0～48byte编辑数据。
+ECB
+Edit Command Buffer.从Quark接收的EC被存储在Edit Command Buffer (ECB) 中，ECB只存储EC的控制信息。
+EDB
+Edit Data Buffer.用来存储EC的编辑数据 。
+MEMP
+Memory Pool，内置缓存空间，使用SRAM搭建。
+PQM
+Ingress Queue Manager，入端口报文队列管理。
+EQM
+Egress Queue Manager，出端口报文队列管理。
+HOPLMT
+Hop Limit. IPv6头的HopLimit域。
+TTL
+Time to Live. IPv4头的TTL域。
+FAM
+Free Address Manager.自由地址管理。
+IFB
+Internal Frame Buffer.内置转发缓存。
+FD
+Frame Descriptor.帧描述符。
+Table 5.7-1 PE Terminology
+5.7.3 PE Overview
+PE模块执行报文编辑时，当前指针就是原始报文当前的位置。当PE开始编辑一个新的报文时，该指针被初始化为报文头，即置为0。指针通过每个EC命令在原始报文上顺序移动。如果用户希望直接跳到包尾，那么不必知道报文的长度，只需要执行KEEP 16383Byte的命令，就可以将指针指向包尾。
+5.7.4.1 Packet Edit Commands
+下面的表格给出PE 支持的所有EC 命令和每个命令的命名。
+Item Capacity
+ADD [ADD_SIZE] 执行ADD 命令是将“ADD_SIZE”Bytes 的数据插到原始报文中；ADD_SIZE 的
+范围是0~48 字节。插入的报文位置是由当前的指针指示，执行ADD 命令不会
+移动指针。
+REPLACE [REP_SIZE,ADD_SIZE]
+执行REPLACE 命令是先删除“REP_SIZE”Bytes 的原始报文数据，再添加
+“ADD_SIZE”Bytes 的数据到原始报文中；REP_SIZE 的范围是0~128 字节，
+ADD_SIZE 的范围是0~48 字节。插入的报文位置是由当前的指针指示，执行
+REPLACE 命令会将指针向前移动REP_SIZE。
+如果剩余的原始报文数据少于REP_SIZE，只有实际的原始报文长度被剥离。
+KEEP[KEEP_RM_SIZE]
+执行KEEP 命令是保持“KEEP_RM_SIZE”Bytes 的原始报文数据；
+KEEP_RM_SIZE 的范围是0~16383 字节。起始的位置是由当前的指针指示，执
+行KEEP 命令会将指针向前移动KEEP_RM_SIZE。
+如果剩余的原始报文数据少于KEEP_RM_SIZE，只有实际的原始报文长度被保
+持。
+REMOVE[KEEP_RM_SIZE]
+执行REMOVE 命令是删除“KEEP_RM_SIZE”Bytes 的原始报文数据；
+KEEP_RM_SIZE 的范围是0~16383 字节。起始的位置是由当前的指针指示，执
+行REMOVE 命令会将指针向前移动KEEP_RM_SIZE。
+如果剩余的原始报文数据少于KEEP_RM_SIZE，只有实际的原始报文长度被删
+除。
+Table 5.7-2 编辑命令表
+PE 报文的编辑可以支持ADD，REPLACE，KEEP 或者REMOVE 命令，命令可以是任意
+指定的原始报文位置。
+Figure 5.7-2 Packet Editing Functionality
+上图对报文的编辑操作进行了一个示例，报文编辑按照如下的方式进行：
+ 根据命令将L2 报文头全部删除；
+ 在IP 头前面添加了一个数据块A；
+ 将原来的IP Header Part1 头按照数据块B 的数据进行修改；
+ IP Header Part 2 到报文的尾部，不做任何修改；
+ 在报文的尾部添加数据块C。
+5.7.4.2 IP TTL/HOPLIMIT Update
+当TTL 的更新标记有效的时候，PE 会在EC 编辑动作完成之后，将报文指定位置的原始
+TTL/HOPLIMIT 1 字节信息读出来，然后进行减1 操作之后替换到报文中。当原始值为0
+时，不进行任何操作。在报文尾时获取报文长度信息，进行命令合法性检查（见5.7.6 章
+节），如果在报文尾当前拍发现命令异常，则当前拍数据不做编辑，并打上错误标记。
+TTL/HOTLMT 字段的起始位置是由EDIT_INFO 中的TTL_START [7:0]指定。
+EDIT_INFO 的数据结构见5.7.9.1 所示。
+需要的信息如下：
+TTL_START[7:0] 指示在编辑后的报文TTL 头的起始位置，单位1 字
+节。
+TTL TTL 的更新使能。
+Table 5.7-3 TTL 需要的EDIT_INFO 信息表
+编辑示意图如下：
+PACKET DATA
+TTL_START
+TTL
+1B
+Figure 5.7-3 TTL 编辑示意图
+上图是编辑后的报文，由Quark 指示TTL 的起始位置，从TTL 的位置开始取出1 字节数
+据进行减1 后回写；如果原始值为0 则保持不变。
+5.7.4.3 Checksum Update
+PE 可以支持三个Checksum 的更新动作，分别是IPv4 Checksum、TCP/UDP Checksum、
+扩展的Checksum。在报文所有编辑动作执行完成之后，由EDIT_INFO 指定相关信息进
+行Checksum 计算，并把计算后的值更新到指定的Checksum 域的位置。执行之前需要判
+断命令是否合法（见5.7.6 章节）来决定是丢弃还是执行。
+微码需保证不存在某组Checksum的计算范围与另一组Checksum 域值位置出现重叠的
+情况。否则逻辑将按Checksum域的原始值进行计算。
+5.7.4.3.1 IH Checksum
+需要的信息如下：
+IH_START[7:0] 指示在编辑后的报文IH_头的起始位置，单位1 字
+节。
+IH_LENGTH[7:0] 指示IH_头长度需要计算Checksum 的长度，单位1
+字节。
+IH_OFFSET[7:0] IH_计算Checksum 域相对于IH_START 的位置偏移
+，单位1 字节。
+IH_CHECKSUM IH Checksum 计算使能
+Table 5.7-4 IPv4 Checksum 需要的EDIT_INFO 信息表
+PE 的Checksum 计算范围是：IPv4 首部，从Version 域开始到Option 末尾结束。由Quark
+给出的IH_START[7:0]、IH_LENGTH[7:0]决定。
+编辑示意图如下：
+PACKET DATA
+IH_START
+2B
+IH_LENGTH
+IH_OFFSET
+CHS
+Figure 5.7-4 IH Checksum 更新示意图
+上图是编辑后的报文，当IH_CHECKSUM为1 时，PE 开始从IH_START 计算到
+IH_START+IH_LENGTH 结束，当IH_LENGTH 是奇数时，低位要补1 字节0；计算结果
+放到IH_START+IH_OFFSET 位置。
+该功能可用于IPv4 头的Checksum 计算，或者类似于IPv4 头的IP Checksum 计算。IPv4
+报文运用实例见5.7.11.1。
+
+5.7.7 Performance
+PE主要性能如下：
+PE从PQM接收报文数据，每拍是128bit；输出给MEMP每拍也是128bit。因此吞吐量为128bit*300M=38.4Gbps。远大于需求的18Gbps的流量。所以吞吐量不是瓶颈。而对于最短包的转发性能才是瓶颈。
+对于短包的性能计算，以以太网报文为例，最短包长为64B，传输中的IPG为12B，Preamble为8B。合计最短包长为(64+20+4)*8=704bit。上下行18Gbps的有效载荷流量。因此，一个最短包所能接受最大处理时间为704/18=39.1ns。内部时钟周期为3.33ns(300M)，最短报文所支持最大延时为39.1/3.33=11cycles。
+性能需要根据使用的命令数量多少，命令类型，命令执行的位置，来决定报文头编辑处理能力。编辑动作包括：添加、删除、替换。当编辑后长度变长，则出口速率会大于入口速率。此时，要求出口速率为线速。当编辑后长度变短，出口速率会小于入口速率。此时，很难对出口速率进行量化测试。因此，对这种情况的性能测试仅要求入口速率达到线速。同理，对于编辑后包长不变的，则要求出/入口均达到线速。
+下面提供典型场景分析，PE可以达到18Gbps的带宽。
+5.7.7.1 Scene 1
+Eth、Ipv4、UDP报文，切换 1层VLAN，L2转发 EC.CMD:Replace EC.REP_SIZE=42B EC. ADD_SIZE =42B EC. ED_LOC=… EditInfo.QUK_EDB_LOC=… EditInfo.TPID_REP=4’b1000 EditInfo. TPID_COMPRESSED = 0 EditInfo. TXTOEND=1 EditInfo.Other不关心
+性能分析：假设在包长等于65Byte的情况下，数据需要5个时钟周期，EC处理需要1个时钟周期，EDIT_INFO处理不需要损耗性能，FRM_INFO需要1个时钟周期，编辑后包长不变，所以该场景的性能是(65+20+4)*8*0.3/7=30.5Gbps。
+5.7.7.2 Scene 2
+Eth、切换1层Vlan， Ipv6、UDP报文入隧道，IPV6替换为IPv4，L3转发 EC0.CMD:Replace EC0.REP_SIZE=62B EC0.ADD_SIZE =42B EC0.ED_LOC=… EditInfo.QUK_EDB_LOC=… EditInfo.TPID_REP=4’b1000 EditInfo. TPID_COMPRESSED = 0 EditInfo. TXTOEND=1 EditInfo.TTL=1； EditInfo.IH_CHECKSUM=1; EditInfo .IH_START=… EditInfo .IH_LENGTH=… EditInfo.Other不关心
+性能分析：假设在包长等于65Byte的情况下，数据需要5个时钟周期，该场景EC处理不需要消耗时钟周期，因为替换动作之后有两次删除动作，可以吸收处理延时，EDIT_INFO处理不需要消耗性能，FRM_INFO需要1个时钟周期，编辑后包长是42Byte，按前面分析，还是用入口的65Byte来进行计算，所以该场景的性能是(65+20+4)*8*0.3/6=35.6Gbps。
+5.7.7.3 Scene 3
+Eth、带2层Vlan加2层Vlan， PPP Ipv4、UDP报文入隧道，IPV4外分一层IPv6，L3转发 EC0.CMD:Replace
+EC0.REP_SIZE=54B EC0. ADD_SIZE =48B EC0. ED_LOC=… EC1.CMD:Add EC1. ADD_SIZE =48B EC1. ED_LOC=… EC2.CMD:Add EC2. ADD_SIZE =6B EC2. ED_LOC=… EditInfo.QUK_EDB_LOC=… EditInfo.TPID_REP=4‘b1111 EditInfo. TPID_COMPRESSED = 8’b01_10_11_00 EditInfo. TXTOEND=1 EditInfo.TTL=1； EditInfo.IH_CHECKSUM=1; EditInfo .IH_START=… EditInfo .IH_LENGTH=… EditInfo.Other不关心
+性能分析：假设在包长等于65Byte的情况下，数据需要5个时钟周期，该场景EC处理需要3个时钟周期，EDIT_INFO处理不需要消耗性能，FRM_INFO需要1个时钟周期，编辑后包长是113Byte，按前面分析，按照出口的113Byte来进行计算，所以该场景的性能是(113+20+4)*8*0.3/8=41.1Gbps。
+5.7.8 PE To MEMP FD
+PE写MEMP的数据结构分为4部分：
+1. 128bit FRM_INFO(FD)域：主要携带端口、长度与分片信息。
+2. 128bit Extended_FD域（Option）：携带给EPS模块的OAM Y.1731 LM报文更新信息。
+3. 4*64bit LRO域：主要携带To PIE口的重组信息。
+4. 4 * 64bit VAR_INFO域 (Option)：Variable域。携带To PIE和To PRBS的一些特定信息。具体长度由顶层register配置，以8B为边界，最多32B。
+5. Frame Data域：报文payload内容，通常从DMAC、SMAC开始。
+其中FRM_INFO是固定的，Extended_FD是可配的，LRO是发送PIE口且有重组时才有，长度是32B，VAR_INFO是发送到PIE或PRBS端口才有，且发往PIE时可配长度是8B~32B，发往PRBS时可配长度是固定8B。
+各个段的信息处理如下：
+Copyright © 2016-2017, Huawei Technologies. All rights reserved.
+CONFIDENTIAL. FOR INTERNAL USE ONLY.
+ FRM_INFO信息由PE从PQM、TM_INFO获取，以及部分由PE自行计算得到，微码只需要关注TM_INFO数据结构；
+ EXT FD信息以EC+ED的形式带过来，要求添加在报文头，有该信息时，微码需要将TM_INFO的exd_fd域置1；
+ PIE的LRO信息，32Byte，以EC+ED的形式带过来，要求跟在EXT FD（如果有）后面，添加在报文头；
+ PIE的PIPE0，8Byte，以EC+ED的形式带过来，要求跟在EXT FD（如果有）、LRO（如果有）后面，添加在报文头；
+ PIE的PIPE1，8Byte，由EC+ED的形式带过来，要求跟在PIPE0后面，添加在报文头；
+ PIE的PIPE2，8Byte，由EC的形式带过来，当报文是TR143/TWAMP时，Quark指示PE带上64bit时戳信息或者直接由EC+ED的方式编辑时戳，要求跟在PIPE1后面，添加在报文头；
+ PIE的PIPE3，8Byte，是RESERVED；
+PRBS信息由EC+ED的形式带过来，要求跟在EXT FD（如果有）后面，添加在报文头。
