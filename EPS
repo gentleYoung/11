@@ -1,0 +1,433 @@
+5.9 EGRESS PORT SCHEDULER (EPS)
+出端口调度提供外接各端口的数据输出调度功能，其中xPON端口基于tcont/llid完成调度，其他端口基于物理端口进行调度。
+5.9.1 Main Feature
+ 使用29个FD_FIFO对EQM发来的FD进行缓存，分别对应1个xPON的16个TCONT/LLID 逻辑通道、1个PRBS端口、4个PIE端口、1个WOE端口、6个GE端口，1个二次入队的环回端口。
+ 支持PIE的4个虚拟端口的8个通道ID的映射。
+ PIE接口支持基于8个通道的反压，逻辑端口之间进行整帧切换发送。若多个通道映射到同一个逻辑端口，则一个通道的反压会影响到该逻辑端口其他通道的发送。
+ 支持WOE的1个虚拟端口。
+ 支持对29个FD_FIFO的轮询和调度。
+ 支持不同报文的IFB、EFB混合转发。
+ 支持根据前级模块指示，判断 IFB或EFB中 HEAD和BODY数据是分离放置或合并放置。
+ 支持EFB cell大小为512/1024Byte可配置。
+ 支持输出基于帧的地址回收信息给FAM模块实现缓存回收，同时反馈源端口给FAM用于计算基于源端口的反压。
+ 支持基于FD_FIFO的反压信号给EQM，各个端口单独配置水线。
+ 支持动态调频功能。
+ 支持xPON低功耗：根据PON口的入队、出队进行队列内报文统计，当PON口队列无报文的时间超过配置的阈值后进入低功耗；处于低功耗时，当EQM入队报文超过配置的阈值时退出低功耗。
+ 支持GPON、10G GPON模式下FCS计算，支持FCS 插错。
+ 支持WAN口统计：支持全局15个基于PORT+VLAN+MAC配置的报文统计，每个统计项包括单播报文、组播报文、广播报文，3项统计，每项统计支持报文个数统计和字节数统计。
+ 支持jumbo帧（包长最大支持9600Byte的报文）。
+ 支持1731报文的统计和编辑。
+ 支持1588报文标识透传。
+5.9.2 Terminology
+The following terms have special meanings in this section.
+Term Description
+EPS Egress port schedule
+IFB Internal Frame Buffer
+EFB External Frame Buffer
+MEMP Memory Pool
+FAM Free Address Manager
+DMC DDR Memory Controller
+Table 5.9-1 EPS Terminology
+5.9.3 EPS Overview
+5.9.3.1 Introduction
+Figure 5.9-1 EPS Overview
+EPS 根据出端口状态和EQM调度出的帧数据描述符（FD），向EFB 或IFB 发出报文读
+命令。在读出报文后，释放相应cell 的地址和组播ID。读出的数据缓存到TX BUF 内，
+在端口没有出现反压的情况下，分别调度出缓存，发送到相应的物理端口。EPS 模块主要
+由三部分构成：
+. EPS LOAD 负责管理各个通道的FD_FIFO、IFB 和EFB 数据的读取、帧内链表的查询
+和帧地址的释放。
+. Tx Buffer 用于每个逻辑通道缓存各自需要发送的数据。
+ EPS SEND负责对各端口数据进行RR轮询和位宽转换，如果是xGPON模式下还需要进行FCS计算；最后将数据发送给各端口。
+EPS LOAD模块有29个FD_FIFO，缓存EQM发来的FD信息，分别对应1个xPON的16个TCONT/LLID 逻辑通道、1个PRBS端口、5个PIE端口、6个GE端口，1个二次入队的环回端口。
+TX_BUF模块用于缓存输出接口对应的数 据，缓存大小分别是：
+ 1个TCONT对应6KB，共16个TCONT；
+ 1个GE对应3KB，共5个GE口；
+ 1个2.5GE对应3KB，共1个2.5GE口；
+ 1个PIE对应1KB，共4个虚拟端口；
+ 1个WOE对应3KB，共1个虚拟端口；
+ 1个PRBS对应2KB，共1个PRBS口。
+总缓存是：16*6k+6*3k+4*1k+3k+2k=123k。
+注：如果XPON需要高低优先级队列，TCONT/LLID个数都要再减半。
+TCONT缓存的96KByte空间可通过TX_BUF反压水线灵活配置，支持32tcont时，反压水线配置为3K；支持8tcont时，反压水线配置为12K；以此类推，个数只支持2的N次方。
+5.9.4 PIE_CHANNEL MAP
+EPS在PIE端口支持8个逻辑通道，对应PIE的8个接收队列。PIE的8个队列可以配置成最多4个虚拟端口，每个端口可支持多个优先级。EQM送出的PIE端口报文需要在EPS映射到逻辑通道；
+EPS支持16条规则匹配映射到PIE的8个队列，实现使用寄存器配置方式；具体内容如下：
+规则条目：16
+匹配内容：igr[31:0](bitmap)+rxhash[1:0]+pie_ech[1:0]+pie_sq[3:0]+gro_id[3:0]。
+igr为源端口，rxhash为五元组哈希值，pie_ech为pie的虚拟端口号，pie_sq为pie的优先级，gro_id为GRO重组报文流ID。
+匹配规则：igr固定匹配，其它4项可选匹配，其中gro_id[3:0]还需要前级模块的gro_id_en使能匹配域，若某条规则中gro_id需要参与匹配，即寄存器中gro_id_vld为1，但是gro_id_en无效，则本条规则匹配失败。gro_id_en无效表示报文没有gro_id[3:0]字段。
+igr是bitmap的形式，可以同时配多个bit有效，只要报文的igr[4:0]字段转换成bitmap后与其中1bit对应上，则igr域匹配成功。
+匹配结果：所有规则遍历匹配，同时命中多条规则，取匹配优先级最高的作为命中结果；若命中优先级相同，取序号最小的作为命中结果；没有命中规则时，取默认pie_chid。
+规则属性：设置规则有效位，无效规则不参与匹配；
+匹配动作：指定报文的pie_chid[2:0]；
+其中igr+rxhash[1:0]+gro_id[3:0]+gro_id_en信息来自报文FD，pie_ech[1:0] + pie_sq[3:0]信息来自EQM FD。
+成员名 范围 属性 描述
+pie_rule_vld
+31
+RW
+PIE队列映射规则有效位。
+pie_chid
+30:28
+RW
+PIE队列映射ID（匹配结果）。
+reserved
+27:24
+RO
+保留。
+pie_rule_pri
+23:20
+RW
+匹配优先级。
+gro_id_vld
+19
+RW
+GRO重组报文流ID有效位。
+reserved
+18:16
+RO
+保留。
+gro_id
+15:12
+RW
+GRO重组报文流ID。
+rxhash_vld
+11
+RW
+五元组RXHASH值有效位。
+reserved
+10
+RO
+保留。
+rxhash
+9:8
+RW
+五元组RXHASH值。
+pie_ech_vld
+7
+RW
+PIE虚拟端口有效位。
+pie_ech
+6:5
+RW
+PIE虚拟端口。
+pie_sq_vld
+4
+RW
+PIE报文优先级有效位。
+pie_sq
+3:0
+RW
+PIE报文优先级。
+Table 5.9-2 PIE队列映射寄存器配置0
+成员名 范围 属性 描述
+igr
+31:0
+RW
+报文源端口（bitmap）。
+Table 5.9-3 PIE队列映射寄存器配置1
+以下图为例，PIE被划分为2个虚拟端口，虚拟端口0占用队列4~7，虚拟端口1占用队列2~3。EPS可以根据EQM通用调度器的CHID和输入端编号把EQM队列一对一或多对一映射到PIE队列。
+Figure 5.9-2 PIE 逻辑通道映射
+5.9.5 EPS to EQM Backpress Interface
+EPS 给EQM的反压信号，直接送给EQM的端口调度器。
+eps_eqm_uni_xoff{0..5} UNI 6 个FD_FIFO Full 反压信号
+eps_eqm_xpon_xoff{0..15} XPON 16 个FD_FIFO Full 反压信号
+eps_eqm_pie_xoff{0..3} PIE 4 个FD_FIFO Full 反压信号
+eps_eqm_prbs_xoff PRBS 1 个FD_FIFO Full 反压信号
+eps_eqm_woe_xoff WOE 1 个FD_FIFO Full 反压信号
+eps_eqm_lb_xoff LOOPBACK 1 个FD_FIFO Full 反压信号
+5.9.6 Second Loop Path
+EPS 根据ECHID=loopback 来判断二次入队的报文。
+EPS 接收到报文之后，从DDR 或MEMP 中读出FD 后将FD 环回给EQM进行二次入
+队。
+读回的报文FD 即可完成EQM二次入队环回处理。
+5.9.7 IFB/EFB Cell
+IFB CELL 大小为160Byte，切片大小也是160Byte，每次切片都需要查询NCAP；
+EFB CELL大小为512Byte、1024Byte可配置，切片大小为256Byte，当配置为512B时，每2次切片需要1次查询；配置为1024B时，每4次切片需要1次查询。
+切片完成后，需要根据当前的切片信息发出读IFB/EFB的帧数据的命令。
+当前切片完成后，如果报文的剩余长度不为0，即剩余的CELL个数不为0，则向FAM发出下一个CELL查询，查询命令是先写入一个FIFO，FIFO的读侧与FAM接口当查询空闲且FIFO非空时就会发起查询操作，这样做的目的是吸收FAM查询的抖动。因为IFB一个CELL的大小就是160Byte，每切完一次160Byte都要去查询下一缓存节点的地址，因此需要每次切片完成之后都要屏蔽当前的通道的调度，直至查询的下一个CELL地址返回。
+5.9.8 1731 Packet Processing
+5.9.8.1 1731 Packet Statistics
+1731报文的统计表位宽为32bit，共支持256个统计项，对于统计有效标识为高电平的统计项，根据ext_fd中相应的统计索引作为地址，将统计表中的表项内容读出，加1后再写回该表项中，完成一次统计。一个报文可能会有多个统计项同时有效，需要依次进行统计。1731报文最多只有3个统计索引和1个编辑索引，在3个统计索引和1个编辑索引同时有效的情况下，共需四读三写7拍即可完成一个报文的统计，因此1731统计表选用一片单口RAM实现。
+5.9.8.2 1731 Packet Edit
+对于ext_fd中采样有效标识为高电平的报文，需要进行报文编辑，将ext_fd中的采样索引作为地址，读出1731统计表中相应表项的内容，从报文的指定位置开始，用前面读出表项内容的32bit数据对报文进行改写。指定的改写位置从DMAC开始计算，偏移量为ext_fd中的LM采样编辑位置（lm_edit_offset）。
+这里从1731统计表中读出的统计值是该报文被统计之前的值。
+对于1731统计表，只能进行CPU写清零，没有其他清零方式；统计满32bit后翻转，不饱和。
+5.9.9 Error Handling
+ 超短包丢弃；丢包不释放缓存。
+ FD ECC校验错误报文丢弃，不释放缓存。
+ 出端口错误报文丢弃，可配置是否释放缓存。
+5.9.10 Performance
+EPS 切片调度最快8拍调度出一个160Byte数据块，但由于EPS和缓存的接口是128bit，EPS Merge模块需要15拍才能读完一个160Byte的数据块，则一般情况下，调度器会受到MERGE的反压，实际的调度是15拍调度一个160Byte的数据块。则EPS的内部处理带宽为：300MHz： ((160Byte * 8) /15)* 300Mhz = 25.6Gbps
+所有端口并发线速4GE(4G)+10GEPON(10G)+RGMII(1G)+(PIE+WOE)(3G)=18Gbps。
+如果频率是300MHz，性能可以满足带宽需求。
+5.9.11 Power Management
+5.9.11.1 Dynamic Frequency modulation
+EPS与EQM配合完成各端口待发送报文数的统计，实现动态调频功能。需要做以下端口或逻辑通道的报文统计：
+. GE按端口统计；
+. PIE端口按端口统计；
+. PRBS端口按端口统计；
+. xPON按逻辑通道统计；
+. WOE端口按端口统计。
+EPS累加待发送报文端口的权重，与配置的三级阈值比较，送出比较结果给DP_TOP，DP_TOP根据各模块的结果仲裁出DP的动态调频结果给CRG，CRG根据该结果动态调整工作频率。
+5.9.11.2 PON Low Power
+EPS根据PON口的入队、出队进行队列内报文统计，当PON口队列无报文的时间超过配置的阈值后进入低功耗（IPS和EPS分别提供进入低功耗中断，当两者都有中断时才进入低功耗）；处于低功耗时，当EQM入队报文超过配置的阈值时退出低功耗。
+. 进入低功耗检测
+检测条件
+当进入低功耗检测使能时，逻辑统计EPS模块PON口队列（EQM入队加1、EPS输出减1）为空的时间，当无报文的时间达到配置阈值，则报进入低功耗中断；
+阈值配置
+PON_ENLP_TH，单位1us，默认值1s。
+EN_LP_ENABLE，进入低功耗检测使能，默认关闭硬件逻辑的进入低功耗检测，由软件自行检测。
+ 退出低功耗检测
+检测条件
+软件配置退出低功耗检测使能，逻辑根据配置开始两种模式的退出检测，维护两个计数器：
+1）EPS每收到一个PON口报文，计数加1（最大值饱和），每发送一个报文减1（最小为0）；
+2）EPS每收到一个PON口报文，计数加1（最大值饱和），每到一个周期则减固定的令牌（最小值为0）；
+只要有一个计数器大于等于各自的配置阈值时，则EPS上报退出低功耗中断；同时记录2-bit的触发状态，供软件查询是哪种检测方式触发了退出低功耗中断。
+上报中断之后计数器继续加减，软件清除退出低功耗检测使能ex_lp_enable后，计数器清零，在配置使能ex_lp_enable为1时，开始下一次计数检测。
+配置
+PON_EXLP_TH，报文个数。
+bits 成员名称 复位值 成员说明
+31:6 reserved 0 保留位
+5 pon_exlp_cre_set 0 减令牌的方式触发退出低功耗状态
+4
+pon_exlp_pkt_set
+0
+减报文的方式触发退出低功耗状态
+3
+exlp_credit_mode
+0
+退出低功耗检测模式：减令牌方式使能
+2
+exlp_pkt_mode
+0
+退出低功耗检测模式：减报文方式使能
+1
+pon_exlp_en
+0
+退出低功耗检测使能配置
+0
+pon_enlp_en
+0
+进入低功耗检测使能配置
+Table 5.9-4 退出低功耗检测使能以及退出检测模式和状态
+bits 成员名称 复位值 成员说明
+31:24
+pon_exlp_credit
+0
+退出低功耗每周期所减的令牌，默认值0
+23:0
+pon_exlp_period
+0x3E8
+退出低功耗减令牌的周期，单位是us，默认值1ms
+Table 5.9-5 定期减令牌的配置
+bits 成员名称 复位值 成员说明
+63:48
+pon_flux_cre_th
+0
+令牌模式有流量的阈值
+47:32
+exlp_credit_th
+0
+令牌模式退出低功耗的阈值
+31:16
+pon_flux_pkt_th
+0
+报文模式有流量的阈值
+15:0
+exlp_pkt_th
+0
+报文模式退出低功耗的阈值
+Table 5.9-6 两套退出低功耗阈值和有流量的阈值配置
+ 有无流量状态检测
+检测条件
+统计PON口队列中的报文数目，当报文数目达到配置阈值时，则报有流量状态；当报进入低功耗中断时，则报无流量状态。
+跟退出低功耗检测类似，逻辑提供两种有无流量状态检测（报文模式和令牌模式）和两个流量状态。
+当逻辑检测到进入低功耗时，计数清零；
+当软件配置退出低功耗检测使能时，计数清零。
+5.9.12 GPON FCS Calculation
+EPS支持GPON/10GGPON模式下ETH 帧FCS的计算，在Txbuf的出口一边发送数据一边计算FCS，在发送到帧尾时填入32bit的FCS值后发送给EPS_PON。
+5.9.13 WAN PORT Statistics
+使用PORT(5bit)+VLAN(14bit)+SMAC (49bit)共15组配置寄存器，匹配后进行统计；EPS命中两个配置项后，可以同时进行两次统计。VLAN，SMAC可单独控制匹配使能，VLAN可匹配Untag报文。
+每组统计的内容如下，每项统计位宽为84bit，包括报文字节和个数统计。统计表项深度为15*4=60。位宽为84bit。查表索引为｛配置索引，成员索引｝。字节统计时包括报文的CRC长度。 成员索引 统计项 描述
+0
+uc_cnt
+单播MAC报文，包括个数和字节数
+1
+mc_cnt
+组播MAC报文，包括个数和字节数
+2
+bc_cnt
+广播MAC报文，包括个数和字节数
+3
+RSV
+保留
+Table 5.9-7 报文类型统计表
+可配置PIE视频诊断报文不做WAN口统计；
+ETH端口1588报文不做WAN口统计；
+PRBS端口的环回报文不做WAN口统计；
+PIE端口1588报文不做WAN口统计；
+二次环回报文不做WAN口统计。
+WAN口统计表 成员名 范围 属性 描述
+frame_cnt_h
+83:80
+RW
+报文个数统计，高4bit,即frame_cnt[35:32]。
+byte_cnt
+79:32
+RW
+报文字节数统计。
+frame_cnt
+31:0
+RW
+报文个数统计。
+Table 5.9-8 WAN口统计表
+5.9.14 DFx Features
+ 统计
+WAN0~14统计匹配SMAC寄存器；
+基于帧 长的报文统计；
+毛刺包统计；
+错误出端口报文统计；
+RAM失效统计；
+EPS出口PON0~15报文统计；
+EPS出口PIE0~3报文统计；
+EPS出口PIE0~7报文统计；
+EPS出口WOE报文统计；
+EPS出口PRBS报文统计；
+EPS出口ETH0~5报文统计；
+基于TraceCounter的3种报文个数统计。
+ DEUBG
+PON口流量状态寄存器；
+PON低功耗置位历史状态寄存器；
+PON低功耗退出触发状态寄存器；
+PON口减令牌方式流量状态寄存器；
+DMC接口DEBUG信号。
+ 中断寄存器
+EPS中断寄存器；
+EPS中断掩码寄存器；
+EPS中断强制置位寄存器。
+5.9.15 TABLE Features
+EPS入口统计表；
+WAN出口统计表；
+LM统计表。
+
+5.10 EPS_PON
+EPS_PON接收EPS送过来的上行数据，经过异步转换和接口适配根据10G GPON/GPON/10G EPON/EPON模式把数据发给NGMAC/GMAC/XGEMAC，并进行dbru/report的带宽计算。
+5.10.1 Main Features
+EPS_PON模块支持的主要特性如下：
+ 5182H支持GPON/xGPON上行16个TCONT，5182T支持xGPON上行32个TCONT；
+ 支持10G EPON对称模式上行16个单播LLID，10G EPON非对称模式2.5G/1G模式上行16个单播LLID，EPON上行8个单播LLID。
+ 支持16个T-CONT的DBRu或者16个LLID的Report计算，可查询配置Report/Dbru。Report/Dbru写操作进行单独配置保护；支持计算的IPG可配置，支持计算溢出告警。
+ 支持平均帧长计算，可以配置是否进行平均帧长计算。
+ 支持基于通道进行使能的Flush，支持对flush丢弃的报文进行分通道统计。
+ 支持TCONT/LLID最大个数减半的优先级抢占模式，比如支持10G EPON 8个LLID优先级抢占模式。
+ 支持TX_BUFFER内部FIFO发送水线门限可配置；
+ 支持多模共享的TX_BUF_PON，并每从TX_BUF_PON的FIFO读出1个报文，都要向EPS反馈一个减信号，用于EPS进行PON低功耗统计。
+ 支持TX_BUF_PON的FIFO通道数可配，支持32/16/8/4个通道的配置。
+5.10.2 Terminology
+The following terms have specific meanings in this section of the document.
+Term Description
+EPS
+Egress Port Schedule
+PON
+Passive Optical Network
+GPON
+Gigabit Passive Optical Network
+EPON
+Ethernet Passive Optical Network
+Table 5.10-1 EPS_PON Terminology
+5.10.3 EPS_PON Overview
+5.10.3.1 PON TX_BUF
+EPS_PON 需要维护8KB 的TX_BUF，默认按照32 通道*256byte 计算，支持4 种缓存
+模式配置（32*256byte,16*512byte,8*1024,4*2048）。TX_BUF 由32 个可以配置模式的独
+立FIFO 构成，所有FIFO 共享一块8KB 的TP_RAM。默认配置16 个通道支持5182H 的
+16 个TCONT 和LLID 规格。
+5.10.3.2 xPON DBRu/Report Calculate
+EPS_PON 根据来自EQM的增脉冲（报文长度）和EPS_PON 内部发送界面（向xPON
+MAC 发送或者内部flush）的减脉冲（报文长度），来计算整个上行队列的帧数据发送到
+线路上所需要的发送窗口大小。
+ xEPON：
+EPS_PON 按XGEMAC 请求的LLID，优先级，FEC 使能状态， 向XGEMAC 分别提供
+Full Report 带宽。并且同时提供当前上行方向的平均帧长，XGEMAC 根据该平均帧长估
+算上行方向的阈值Report。EPS_PON 提供给XGEMAC 的Full Report 值计算方式（伪码
+），如下（单位为TQ）：
+fu l l r p t fe c e n in c le n fe c e n d e c le n
+le n
+fe c le n fe c fe c le n le n fe c le n
+ 
+  
+         
+ 
+ 
+ 
+其中公式中的20 = 8(premble) + 12(ipg，可配置)
+1G 情况下最后实际上报的rpt 值为：
+ceil(full_rpt/2)；
+在2.5G 情况下最后实际上报的rpt 值为：
+ceil(full_rpt/4)；
+在10G 情况下最后实际上报的rpt 值为：
+ceil(full_rpt/20)；
+ xGPON：
+EPS_PON 按TCONT，向xGMAC 同时统计Scr=1 以及Scr=0 的DBru 值，EPS_PON 提供
+给xGMAC 的DBru 值计算方式如下：
+d b ru   in c _ len   d e c _ len
+注：上述算式中的inc_len,dec_len 都包括FCS 和GEM Header（GEM Header 可配置，
+GPON 5 字节，XGPON 8 字节）。
+xGMAC Dbru值，入队方向按帧刷新Dbru值，出队方向按每16Cycles或者T-CONT切换时刷新一次Dbru值。
+5.10.3.3 xPON Flush功能
+当xPON MAC掉线时需要启动Flush功能对上行缓存中待发送的数据进行抽取，以释放这些数据占用的缓存。
+xEPON模式时，首先需要在EPS_PON中启动一个或者多个LLID的Flush，当Flush启动时，EPS_PON会屏蔽对应LLID的cur_vld/nxt_vld， EPS_PON负责清空对应LLID在EPS_PON中缓存的帧数据，并继续向EPS抽取帧数据。
+xGPON模式时，在EPS_PON中启动一个或者多个T-CONT Flush即可，操作和EPON模式类似，EPS_PON会通过接口输出给 xGMAC 每个TCONT实时Flush状态。
+5.10.3.4 EPON的高优先级抢占模式
+使用XPON Bonding模式减小高优先级的时延。实现思路如下：
+利用EPS，EPS_PON中两个通道分别承载xPON MAC中的同一个LLID/T-CONT的高优先级报文和低优先级报文。
+当xPON MAC向EPS_PON请求对应LLID/T-CONT数据时，EPS_PON优先发送高优先级的报文。
+只有当EPS,EPS_PON中高优先级报文完整发送出去，且队列为空后，再发送低优先级的报文。
+在绑定模式时，xPON MAC送给EPS_PON的LLID Idex/T-CONT n，对应EPS_PON内部通道2n,2n+1。
+5.10.4 Table Structure
+5.10.4.1 Report/DBRu Table
+5.10.4.1.1 表格基本描述
+表格名称
+Report/DBRu Table 起始地址
+0x0 地址范围
+0~127 表项数目
+128 每项宽度
+96bits
+寻址方式
+EPON:{Pri,LLID Index};
+GPON: T-CONT
+Table 5.10-2 Report/DBRu Table基本描述
+5.10.4.1.2 表项数据结构 Field Width Type Description Reset
+reserved
+95:78
+RO
+保留
+0x0
+avg_len
+77:64
+R/W
+xEPON模式时平均帧长
+0x40
+reserved
+63:60
+RO
+保留
+0x0
+full_rpt1
+59:32
+R/W
+xEPON模式：FEC ON full report
+xGPON模式：SCR=1 DBRU
+0x0
+reserved
+31:28
+RO
+保留
+0x0
+full_rpt0
+27:0
+R/W
+xEPON模式：FEC OFF full report
+xGPON模式：SCR=0 DBRU
+0x0
+Table 5.10-3 Report/DBRu Table数据结构
