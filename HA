@@ -1,0 +1,450 @@
+5.3 HARDWARE ACCELERATOR (HA)
+Hardware Accelerator(HA)是一个报文解析引擎，是上下行报文进入PSA子系统前的优先级选择处理器。HA包含PA和FC两个子模块，PA对输入报文进行识别和域提取，FC对输入报文提供基本流分类和优先级处理，流分类结果作为报文携带信息输出给PQM。
+5.3.1 Main Features
+HA模块支持的功能特性由PA和FC两部分组成，其如下：
+PA模块支持的功能特性如下：
+ 支持的基本帧格式 ：
+o Layer2：Ethernet II、IEEE 802.3 SNAP、802.1Q、PPPoE 。
+o Layer3：IPv4/IPv6 ，6RD和Dslite。
+o Layer4：TCP/UDP/ ICMP/ICMPv6
+ 支持普通数据报文解析。
+o 二层报文识别和解析，提取特征域DMAC、SMAC。
+o Ethernet II和802.3 SNAP封装类型识别。
+o 报文TAG类型和TAG层数解析，最多支持3层TAG解析。
+o PPPoE封装，PPPoE discovery和PPPoE session阶段报文的解析，解析PPPoE协议及其承载的IP报文。
+o IPv4/IPv6报文识别。
+o TCP、UDP报文识别和解析，提取TCP报文控制域URG、ACK、PSH、RST、SYN和FIN。
+o 6RD 、Ds-Lite隧道报文识别。
+o IPV6支持自定义扩展头类型报文识别，自定义扩展头编码不能与已有的编码相同。
+ 支持协议报文解析。
+o 支持二层协议报文： BPDU、EAPOL、MPLS和4个自定义Eth_Type报文识别。自定义Eth_Type 不能与已知的Eth_Type编码相同。
+o 支持PPPoE协议报文识别：
+o PPPoE Discovery阶段报文；
+o PPPoE Session阶段LCP报文。
+o PPPoE Session阶段IPCP报文。
+o PPPoE Session阶段CHAP报文。
+o PPPoE Session阶段PAP报文。
+o PPPoE Session阶段IPv6CP报文。
+o 支持IPv4三层协议报文识别。
+o ARP报文。
+o RARP报文。
+o IGMP报文。
+o ICMP报文。
+o 支持IPv6三层协议报文识别：ICMPv6。
+o 支持四层协议报文识别：
+o TCP报文；
+o UDP报文；
+o DHCP报文；
+o DHCPv6报文。
+【注】：HA需要识别的各种报文Type 参见SD5182HV100 Pac_Type.xlsx文档。
+ 支持OAM报文识别
+o 802.3ah OAM报文识别。
+o 802.1ag/Y.1731 OAM报文识别。
+ 支持1588 PTP报文识别。
+ 支持分片报文识别，IPv4/IPv6：识别到L3层，IPv4上报首分片和非首分片；
+ 支持DMAC地址类型识别：unicast，multicast，broadcast ，local station’s MAC 。支持端口认证和报文合法性检查。
+o 支持非法SMAC检查。
+o 支持报文三层/四层CheckSum校验。
+o 支持802.1x认证检查，每个端口1bit 配置，当配置使能，该端口的报文上报802.1x告警（不能丢包）。
+o 支持STP和RSTP检查，每个端口1bit配置，当配置使能，该端口的报文上报STP/RSTP告警（不能丢包）。
+ 支持基于UNTAG/PRI-TAG/TAG三种TAG类型的入口TAG优先级处理。
+ 支持报文优先级处理和源可选择：
+o FCB内的报文优先级pq_valid和pq[2:0]，当pq_valid有效时，优先采用FCB内的优先级。HA 内部进行优先级的映射，所有端口共享一组8x2的优先级映射表。
+o 端口优先级可配置，具有次高优先级。
+o 组播，单播，广播报文优先级可配置，组播报文优先级最高，单播报文次之，广播报文最低。
+o 802.1p/DSCP映射优先级。802.1p和DSCP映射分别采用4个模板，模板按端口可选择，与FC共用同一模板配置。非802.1p/DSCP报文选择Pac_Type映射优先级。
+o 报文类型映射优先级，由Pac_Type映射出的优先级,映射表可配置，每一种Pac_type对应1个优先级配置。
+ 支持报文P/Q/T/U位置偏移指针。
+o P指针：指向ETH头DMAC位置。
+o Q指针：指向ETH头Ethtype位置。
+o T指针：指向报文L3帧头，寻址空间64bytes。
+o U指针：指向报文L4帧头，6rd或dslite报文指向内层IP头净荷位置，寻址空间32bytes。
+o 输出的P/Q/T/U指针，P为DMAC前的偏移量 ，Q/T/U指针为基于DMAC后的偏移。
+ 支持报文头开始位置可变：
+o 支持按ingress 通道配置报文头开始位置偏移，PIE端口配置相同值，PRBS端口配置相同值。
+o 支持FCB中携带的报文头位置偏移，例如：pie_ext_ind。
+ 支持报文类型Pac_type到流FID的映射，即默认流FID，映射表可配置。
+ 支持错误帧分类统计功能。
+o 非法SMAC报文。
+o 支持checksum 错误报文统计。
+o STP和RSTP 状态检查丢弃的报文。
+o 802.1x认证检查丢弃的报文。
+FC模块支持的功能特性如下：
+ 流分类表：
+o 支持192条流分类规则，最多支持4个label，每个label有16个优先级，可输出1条匹配结果。多个label之间若有匹配冲突，则按照配置的label优先级选择。
+o 每个表项最多支持三个匹配域，G0(32bit)/G1(16bit)/G2(16bit)。支持G0+G1+G2匹配或者G0+{G2, G1}匹配。
+ 流匹配域的规格：
+o 支持入端口匹配（BITMAP）。
+o 支持TAG /UNTAG类型报文匹配，匹配使能可配置。
+ 支持二层流匹配的域规格：
+o 支持SMAC/DMAC匹配。
+o 支持入端口TAG的SVLAN/CVLAN/SPBIT/CPBIT/STPID/CTPID匹配。
+o 支持MPLS报文T/U指针后1个字节域的匹配。
+o 支持入端口TAG的TAG层数匹配（TAG_SUM）。
+o 支持以太类型匹配。
+o 支持PPP_ENCAP（PPPoE封装）匹配。
+o 支持PPPoE Session阶段Protocol匹配。
+o 支持PPPoE SESSION_ID匹配。
+o 支持ETH ENCAPSULE匹配（ETH/SNAP）。
+o 支持TAG TYPE匹配（TAG/PRI-TAG/UNTAG）。
+ 支持三层/四层流匹配的域规格：
+o 支持ARP DIP匹配。
+o 支持IPv4 SIPv4/ DIPv4匹配。
+o 支持IPv4 IP_PROTOCOL匹配。
+o 支持IPv4 TOS匹配。
+o 支持IPv6报文SIP/DIP联合表项匹配。
+o 支持IPv6 NXT_HEADER和3个扩展NXT_HEADER匹配（任意一个匹配即可）。
+o 支持IPv6 TC匹配。
+o 支持IPv6 FL匹配。
+o 支持报文SPORT/DPORT的匹配（非TCP/UDP报文匹配失败）。
+o 支持协议报文流匹配的域规格
+o 支持ICMPv6_TYPE匹配。
+o 支持TCP Control Bits匹配。
+o 支持协议类型PTYPE匹配。
+o 支持GEMPORT/LLID匹配（LINEINFO）。
+o 支持FRM_TYPE匹配（二层单播/二层组播/广播等）。
+o 支持IP_FRAG匹配（分片报文匹配）。
+ 流匹配规则：
+o 支持是非匹配。
+o 支持掩码匹配。
+o 支持范围匹配。
+o 支持掩码后范围匹配。
+o 支持大于等于匹配。
+o 支持小于匹配。
+注：NXT_HEADER/扩展NXT_HEADER只支持是匹配。
+o 支持联合表项匹配。
+o 支持最多4条表项进行联合匹配，各表项均匹配成功时联合匹配成功。
+o 支持最后一个表项动作为联合匹配最终动作。
+ 标记匹配行为规则：
+o 支持队列优先级来源：指定值/S8021P/DSCP映射值。
+ 支持3个统计TC_ID，每个TC_ID对应1个32bit统计计数器，不饱和。
+o FC 根据Port/GemPort+/Vlan+/EthType+/SMAC+/DMAC+/SIP+/DIP+/Protocol （其中，Vlan只支持外2层）匹配出3条流，分别统计命中的3条流，并送出2bit的TC_ID给PQM,1:表示流规则1命中；2：表示流规则2命中；3：表示流规则3命中；0：表示没有流规则命中。若多条流规则命中，流规则1优先级最高，流规则3优先级最低，按照优先级高低选择输出。
+ 支持最多4个有效FCID输出。每个label输出1个FCID，当流匹配无效时，输出默认FCID（该FCID由PA根据pac_type映射出的初始流ID）。
+5.3.2 Terminology
+The following terms have specific meanings in this section of the document.
+Term Description
+HA Hardware Accelerator
+PA Packet Analyze
+FC Flow Classify
+FCID Flow Classify ID
+TC_ID Test counter ID ,流统计ID
+PQM 报文队列管理
+IPS 输入报文处理
+Table 5.3-1 HA Terminology
+5.3.3 References
+There is no additional relevant documentation for this section of the document.
+5.3.4 HA Data Flow
+HA 模块结构和数据流如下：
+Figure 5.3-1 HA 模块结构图
+PA 从IPS 模块接收32 byte FCB 和128 byte 的报文头信息，对报文进行入口安全检查，逐层解析，识别基本帧格式和类型，提取特征域信息。
+FC 接收PA发送的报文头信息，按照各种特征域，对报文进行分类匹配，得到报文的优先级信息和送交NP 的流分类信息。
+5.3.5 Data Struction In ITF
+HA与PQM模块接口的数据结构参见AS目录下SD5182HV100 接口数据结构.xlsx文档。
+5.3.6 Packet Analyze (PA)
+5.3.6.1 Introduction of the Frame
+PA 支持ETH(Ethernet II 和IEEE802.3 SNAP)和PPPoE两种基本帧结构。支持各种基于此三种以太帧的上层帧结构，主要包括：IEEE802.1Q、PPPoE、IPoE、IPoPPPoE 等。
+VLAN TAG 识别，每层4个TPID 进行匹配识别，每个都可以配置；其中，每层第1个配置优先级最高，第2个配置优先级次之，第4个配置优先级最低。报文识别和匹配时，按照优先级，优先选择优先级高的配置。
+5.3.6.2 Special Field Extracted
+按照帧结构和帧格式，提取帧数据中的特征域，提取后的特征域经过编码后可作为流分类的输入。PA支持L2/L3/L4层特征域的提取。
+5.3.7 Flow Classify (FC)
+FC模块通过PA输出的特征域，查找192条流规则表，并进行匹配，根据匹配结果选择优先级和送NP的报文信息。本处需要识别的接入报文：主要是指一些需要捕获到CPU处理的特殊协议报文。
+5.3.7.1 Process Flow Of FC
+FC模块流分类处理流程如下：
+Figure 5.3-2 FC 流匹配处理流程图
+5.3.7.2 Format Of MAP
+MAP 表支持192 条流表项，每个有效表项的位宽为164bit，实际表项排布方式参见寄存
+器列表，有效表项结构如下：
+Field Name Width（bit）Description
+valid 1 表项有效标识，高电平有效。
+eof 1 联合表项结束标识，高电平有效。
+label 2 label 标签。表示的含义如下：
+                   2'b00：label 0；
+                 2'b01：label 1；
+                   2'b10：label 2；
+                   2'b11：label 3；
+entry_pri 4 表项优先级。0 表示最低优先级，15 表示最高优先级。
+pf_id 5 Quark 配置的Profile ID （PF_ ID）。
+out_en
+1
+FCID输出有效标识。
+label_pri
+2
+Label的优先级，当多个label命中时，按优先级进行选择PQ优先级。0：优先级最高；3：优先级最低。
+fcid
+8
+流FCID。
+1p_profile_id
+2
+802.1p映射模板ID。
+dscp_profile_id
+2
+DSCP映射模板ID。
+pac_type_m_en
+1
+Packet type 修改使能。
+pac_type_m
+8
+Packet type ，根据匹配结果对原始pac_type进行修改。
+tag_match_en
+1
+Tag 匹配使能。
+tag_ind
+1
+0：untag ；
+1：tag 。
+pq
+2
+入队优先级修改使能时的自定义值。
+pq_en
+2
+修改入队优先级使能。
+2'b00：不指定优先级。
+2'b01：使用外层pbit值；
+2'b10：使用DSCP映射值；
+2'b11：使用自定义值。
+igr
+32
+物理入口，BITMAP格式。
+0：xPON；（GE8）
+1：保留；
+2：保留；
+3：PRBS；
+4：CPU专用端口；
+5：CPU扩展端口；
+6：CPU扩展端口；
+7：CPU扩展端口；
+8：ETH0；（GE0）
+9：ETH1；（GE1）
+10：ETH2；（GE2）
+11：ETH3；（GE3）
+12：ETH4（RGMII）；（GE4）
+13：ETH5（PCIe重用的以太端口）；（GE5）
+14~19 保留；
+20：WOE（WiFi Offloading Engine）通道；
+21~29 保留；
+30 ：环回通道（若IPS从PRBS收到的报文环回标识为1，则为30，而不是PRBS）；
+31 ：组播硬件环回通道；
+g2_mode 2 G2匹配域的匹配规则。
+2’b00：等于；
+2’b01：不等；
+2’b10：小于；
+2’b11：大于等于。
+g1_mode 2 G1匹配域的匹配规则。
+2’b00：等于；
+2’b01：不等；
+2’b10：小于；
+2’b11：大于等于。
+g0_mode 2 G0匹配域的匹配规则。
+2’b00：等于；
+2’b01：不等；
+2’b10：小于；
+2’b11：大于等于。
+k2_mask 4 G2匹配域/KEY2对应的MASK。
+k1_mask 5 G1匹配域/KEY1对应的MASK。
+k0_mask 5 G0匹配域/KEY0对应的MASK。
+g2 7 G2匹配域编码。
+g1 7 G1匹配域编码。
+g0 7 G0匹配域编码。
+k2 16 G2匹配域对应的KEY。
+k1 16 G1匹配域对应的KEY。
+k0 32 G0匹配域对应的KEY。
+Table 5.3-2 MAP表项
+MAP 子表的划分：
+将192条流规则表分成12个子表，12个流分类子表划分结构如下表所示：
+RAM0           RAM1
+子表0 0~15 子表6 96~111
+子表1 16~31 子表7 112~127
+子表2 32~47 子表8 128~143
+子表3 48~63 子表9 144~159
+子表4 64~79 子表10 160~175
+子表5 80~95 子表11 176~191
+Table 5.3-3 MAP表子表划分
+5.3.7.3 Match Field Selected And Match Table
+5.3.7.3.1 Match Field
+匹配域选择方式如下：
+ 支持128个匹配域编码，其中SIPv6、DIPv6各占两个编码。
+ MAP表中配置不同的匹配域编码（g0、g1、g2），选择不同的匹配域进行匹配。
+匹配域和编码表如下：
+Table 5.3-4 匹配域编码表
+匹配域有效判断：匹配域需要通过报文的类型来分析报文对应的匹配域是否有效。如果报文类型与匹配域不符，则对应的匹配域无效，匹配结果为不匹配。例如DIPv4域，当报文为PPPoE承载的IP报文时，需要通过PPPoE_Protocol判断PPPoE承载的是IPv4还是IPv6。当为IPv4时，DIPv4域有效；当为IPv6时，DIPv4域无效。
+【注1】：外层STPID，内层CTPID1/2配置，分别对应一组寄存器。在匹配时，该匹配域配置的TPID配置索引与PA报文识别使用的TPID配置相对应。例如：PA报文识别选择第2个配置作为VLAN TAG识别配置，则FC匹配时，对应TPID域应该配置成“1”（其他配置会导致匹配失败）。
+【注2】：自定义域说明。。根据T/U指针取偏移数据
+【注3】：域编号77支持位宽8bit的BITMAP掩码功能。
+ 将KEY0/KEY1/KEY2的次低字节定义为对应KEY的MASK（最低字节为KEY内容）；
+ 此域编码段FC MAP表中原有的MASK无意义。
+5.3.7.3.2 Match Field distribute
+MAP表项可以支持3个匹配域选择（g0，g1，g2）。
+ g0可以选择的匹配域最长为32bit，g1和g2可以选择的匹配域最长为16bit。
+ 当g1选择长度超过16bit的匹配域时，如DIPv4、SIPv4、DIPv6[63:32]等，自动将g1、g2联合成一个32bit的匹配域进行匹配，匹配域构造模式为｛KEY2，KEY1｝。此时g2选择的匹配域不参与匹配。
+ 对于长度超过32bit的匹配域，如MAC、SIPv6、DIPv6等，可以由g0、g1、g2域联合进行选择。
+一条流可以由多个匹配域标识，FC的每个表项支持3个匹配域，一条表项可以表示一条流。如果流不需要3个匹配域，则可以不使能3个域中的任意选择域。下面通过几个实例来说明。
+【实例一】：匹配DMAC[47:0]。
+ DMAC的匹配域编码为0x1。
+ 可以有两种方式：g0+g1（g0=0x1，g1=0x1，g2=0x0）或者g0+g2 （g0=0x1，g1=0x0，g2=0x1）。
+ g0用于匹配DMAC[31:0]，g1或者g2用于匹配DMAC[47:32]。
+【实例二】：匹配DIPv6[63:0]。
+ DIPv6[63:0]匹配域编码为0x47。
+ 配置为（g0=0x47，g1=0x47，g2=0x0），其中g0用于匹配DIPv6[31:0]，g1+g2联合匹配DIPv6[63:32]，g2选择的匹配域不参与匹配。
+【实例三】：匹配SPBIT。
+ SPBIT的匹配域编码为0x13。
+ 可以在g0、g1、g2三个中任选一个配置为0x13（匹配SPBIT），其他两个匹配域配置为0x0（不使用）。
+ 由于SPBIT长度为3比特，所以需要在高位补0以满足32/16bit的匹配域比较。即如果配置为g0=0x13，则需要在高位补29’b0；如果配置g1/g2=0x13，则需要在高位补13’b0。
+5.3.7.3.3 United Table
+当一条流超过3个以上的匹配域进行匹配时，则需要使用联合表项的方式进行流匹配。
+ 最大可以支持4个表项的联合，即最多支持12个匹配域表征一条流。
+ 联合表项必须连续且位于同一子表内，不能中断。
+ 多表项联合由VALID+EOF标识，EOF是表项结束标志。
+ 单表项表示一条流时，VALID和EOF同时为1。
+ 多表项联合表征一条流时，每个表项VALID都要有效。只有最后一个表项的EOF为1，其他的表项EOF为0，联合表项的优先级、流标识等域只有在EOF有效时才有效。
+联合匹配表项示意如下：
+Figure 5.3-3 联合匹配表项示意图
+【实例】：匹配SIPv6[127:0]。
+ 需要同一子表内连续两个表项配置。
+ SIPv6[63:0]的匹配域编码为0x45，SIPv6[127:64]的匹配域编码为0x46。
+配置项 表项0 表项1
+VALID 1 1
+EOF 0 1
+G0 0x45 （匹配SIPv6[31:0]） 0x46 （匹配SIPv6[95:64]）
+G1 0x45 （匹配SIPv6[63:32]） 0x46（匹配SIPv6[127:96]）
+G2 0x0 0x0
+Table 5.3-6 联合表项匹配SIPv6配置表
+5.3.7.4 Match Rule
+支持的匹配规则有：是非匹配、掩码匹配、范围匹配、联合表项匹配和优先级匹配。
+5.3.7.4.1 Right Or Wrong Match
+匹配域匹配支持是匹配（也叫做正向匹配）和非匹配（也叫做反向匹配）。
+ 是匹配：匹配域和规则相等则认为匹配。
+ 非匹配：匹配域和规则不相等则认为匹配。
+5.3.7.4.2 Match With Mask
+匹配域掩码使用类似IP掩码的方法，支持从低位到高位的连续掩码，掩码值范围为0~31。
+【掩码匹配实例】：匹配域为SIPv4：
+ 如果掩码值为4，则表示SIPv4的低4位（bit[3:0]）被掩为0，只需匹配SIPv4的bit[31:4]。
+ 如果掩码值为31，则表示SIPv4的低31位（bit[30:0]）被掩为0，只匹配SIPv4的bit[31]。
+ 如果掩码值为0，则没有数据被掩掉，需要匹配SIPv4[31:0]。
+当g1配置的匹配域长度超过16bit，g1、g2联合使用时，使用g1域的掩码配置来进行掩码。
+每个匹配域都可以单独掩码，掩码后的匹配域和掩码后的预定义规则（key0，key1，key2）进行匹配。
+5.3.7.4.3 Range Match
+范围匹配支持以下特征：
+ 支持掩码后范围匹配。
+ 支持大于等于/小于匹配。
+ 支持SMAC/DMAC地址和SIPv6/DIPv6地址高/低64bit的范围匹配。
+ 通过寄存器配置匹配的范围，共支持4组范围匹配。
+ 匹配的计算方法为：最小值 <= 匹配域 <= 最大值。
+ 范围匹配的结果，作为匹配域（RANGE0_MATCH~RANGE3_MATCH）参与匹配。对应的匹配域编码为86~89。
+ 范围匹配结果作为特征值
+【范围匹配实例】：SMAC/DMAC+ SIPv6/DIPv6高64bit范围匹配：
+ 输入报文格式：
+o SMAC：0x00-01-02-03-55-88。
+o DMAC：0x00-01-02-60-00-00。
+o SIPv6[127:64] ：5d:00:00:00:5c:00:11:00。
+o DIPv6[127:64]：5d:00:00:00:ee:00:00:00。
+ 匹配表配置及匹配
+o 匹配表配置及匹配如下：
+匹配域选择
+范围域选择
+匹配域编码
+最小值
+最大值
+匹配值
+RANGE0_MATCH
+SMAC
+86
+0x00-01-02-03-55-66
+0x00-01-02-03-55-ff
+1
+RANGE1_MATCH
+DMAC
+87
+0x00-01-02-03-55-66
+0x00-01-02-66-00-00
+1
+RANGE2_MATCH
+SIPv6[127:64]
+88
+5d:00:00:00:5c:00:11:00
+5d:00:00:00:5c:00:12:ff
+1
+RANGE3_MATCH
+DIPv6[127:64]
+89
+5d:00:00:00:ff:00:77:00
+5d:00:00:00:5c:00:99:ff
+0
+Table 5.3-7 SMAC/DMAC+ SIPv6/DIPv6高64bit范围匹配表
+匹配结果：由上表可知，如果入口流匹配选择匹配域编码为86/87/88，且匹配规则为是匹配/不掩码，则该报文可以命中流。如果入口流匹配选择匹配域编码为87/88/89，且匹配规则为是匹配/不掩码，则该报文无法命中流。
+5.3.7.4.4 Match With United Table
+当匹配域超过3个，单个表项不能满足匹配需求时，可以将多个表项联合起来完成一条流的匹配处理。
+5.3.7.4.5 Match With Priority
+同一LABEL中，根据PRI域选择优先级高的匹配表项，优先级相同时选择地址小的匹配表项。
+5.3.7.5 Flow Match And Flow Select
+5.3.7.5.1 Flow Match
+经过前面匹配域选择、匹配规则的描述，可以总结出流匹配的判断条件：
+. 入口匹配为BITMAP，表示不同端口可以匹配同一条流。
+. KEY0/KEY1/KEY2的匹配规则相同：
+o 配置G0/G1/G2。
+o 配置匹配规则。
+o 配置KEY0/KEY1/KEY2。
+o G0/G1/G2选择得到的报文匹配域与KEY0/KEY1/KEY2按照匹配规则进行比较。当入口匹配且流规则全部匹配，表示流匹配成功。
+【注】：联合表项匹配成功的条件为：联合表项中所有表项都匹配。
+5.3.7.5.2 Flow Select
+流选择的规则如下：
+ 多条流命中同一label时，流选择遵守如下规则：
+o 选择最高优先级的流（优先级编码数值高对应的优先级高）。
+o 优先级相同，来自同一LABEL表，则选择地址索引小的流。
+ 流命中后获取流标识FCID。每一个LABEL输出1个FCID。
+ 如果流未命中，则无法获得流规则和流标识。因此不需要查找流动作表，FC不对报文做任何处理。 5.3.7.6 Flow Action（Priority process）
+完成流匹配以后，根据匹配结果查询流动作表，进行后续报文入队优先级处理：
+ 支持四种队列优先级来源，即不指定优先级/使用报文外层PBIT值/使用DSCP映射值/使用自定义值，支持以下4种模式。
+o 0：不指定优先级，则使用前级模块得到的队列优先级。
+o 1：使用原始报文外层PBIT值，如果为UNTAG报文，保持原值（4个模板）。
+o 2：使用原始报文DSCP映射值，使用DSCP值和DSCP模板（4个）获取的优先级。如果报文为非IP报文，或DSCP域无效的报文，保持不变。
+o 3：使用自定义值2bit。
+ 支持Label 优先级配置label_pri，当有多个label命中时，需要先根据label 优先级选出对应label命中的流，然后，根据该label中优先级配置输出报文入队优先级。0：最高优先级；3：为最低优先级。
+ 支持报文类型修改。
+5.3.7.7 RAM Type
+FC模块内的RAM类型如下：
+Memory名称 深度 宽度（Bit） 数量 类型 (SP/TP/DP) 频率 （M） Mask 校验 软件处理
+PA_MAP_MEM
+96
+164
+2
+SP
+500
+off
+ECC
+上报告警和中断，软件检测中断或告警，再对ECC地址重新配置表项。
+PA_FIFO_RAM
+32
+129
+1
+TP
+500
+off
+ECC
+上报告警和中断，无需要软件处理。
+PA_FCID_RAM
+128
+10
+1
+SP
+500
+off
+ECC
+上报告警和中断，软件检测中断或告警，再对ECC地址重新配置表项。
+Table 5.3-8 RAM类型表
+MAP_MEM的数据结构参见 Format Of Map 章节。
+5.3.7.8 Interrupt Or Alarm
+FC模块支持一下告警或中断：
+ 支持ECC错误告警和中断上报，包含FCB带内ECC校验和Memory ECC校验。
+ 支持ECC错误地址上报。
+ 支持中断强插。
+ 支持中断掩码。
+ PA 报文识别出现的告警。包含：checksum 错误告警，入口报文检查告警，报文头超过128 byte 告警。
+5.3.8 Performance
+HA模块主频为500MHz，每16 clock 完成1个报文的处理，输出为16 clock/pkt。吞吐率最大为30Mpps。
+ PA：每16 clock 完成1个报文的识别；
+ FC：MAP表由2块RAM组成，6个流匹配处理单元，每个clock 可以读出2个表项，匹配2条流，96个clock内能够处理的6条流。
+HA 的处理延时：最大156 个clock 。
+ PA 入口FIFO延时：20 clock 。
+ PA 报文识别处理延时：20 clock 。
+ FC 报文流匹配处理延时：100 clock 。
+ FC出口FIFO延时：16 clock 。
