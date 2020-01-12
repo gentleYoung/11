@@ -1,0 +1,238 @@
+5.2 INGRESS PORT SCHEDULE（IPS）
+系统所有入口流量由IPS模块汇聚，IPS先向FAM申请缓存，然后对所有输入接口进行调度，按照调度结果，将报文存入内部缓存PLB（MEMP）。当一个完整报文存入后，将报文头Head Block读出，存到内部Head缓存中，由HA模块将数据读走。
+5.2.1 Main Feature
+ UNI支持4个GE接口、1个1G/2.5GE接口、1个RGMII接口；
+ NNI支持一路xPON口，或者支持一路1G/2.5GE接口；
+ 支持1个PIE物理端口；
+ 支持1个WOE端口；
+ 支持1个PRBS端口；
+ 支持向FAM申请缓存/建立链表的请求；
+ 支持各端口报文数据分组SP+RR轮询写入IFB；
+ 支持检测ETH口流量，产生流控信号送给超过配置门限的ETH端口；
+ 支持动态调频；
+ 支持各端口报文的sop/eop合法性检查；
+ 支持超长帧/超短帧/错误帧检查；
+ 支持WOE端口的FCB提取；
+ 支持PIE端口的FCB提取；
+ 支持PIE端口TCP/UDP报文的 CHECKSUM计算；
+ 支持PIE端口IPv4报文IP header Checksum计算，软件配置计算使能，计算起始位置和Checksum域清0操作；
+ 支持可配的PIE端口短包补零功能；
+ 支持GE/PIE/WOE/PRBS/NNI口CAR功能；
+ 支持对所有入端口的报文大于128字节的净荷部分校验和计算；
+ 支持jumbo帧（包长少于或等于9600Byte的报文）；
+ 支持GE口1588时戳提取。
+5.2.2 Terminology
+The following terms have special meanings in this section.
+Term Description
+IPS Ingress port schedule
+IFB Internal Frame Buffer
+HA Hardware Accelerator
+MEMP Memory Pool
+FAM Free Address Manager
+Table 5.2-1 IPS Terminology
+5.2.3 IPS Overview
+5.2.3.1 Introduction
+Figure 5.2-1 IPS structure
+IPS 主要完成各接口数据的调度和写入MEMP 缓存以及从MEMP 读出报文头给HA 模块。主要由三部分构成：
+. 接口模块IPS_IF，从各个端口接收数据，并进行位宽转换，同时对报文进行检查，异常报文打上drop 标记。
+. 调度模块 IPS_SCH，提前向FAM模块申请16 个IFB CELL，对各个端口重组好的数据进行SP+RR 调度，分配好CELL 空间，将调度结果写入MEMP，并向FAM发起链表处理动作。
+. HA 接口处理模块IPS_HA_ITF，根据报文缓存的首指针，将报文头从MEMP 中读出，给到HA 模块。
+5.2.4 Flow Control
+IPS_SCH模块负责统计各个端口的流量。支持ETH/NNI/PIE/PRBS CAR功能和ETH PAUSE功能。要求CRG模块送给IPS_SCH一个1us基准脉冲，统计间隔可配置。
+CAR和PAUSE功能共用端口累加帧长plen桶和pir令牌，在固定周期内进行刷新，此刷新周期可配置，默认是125us。pir是端口峰值带宽，也称为令牌。每个刷新周期结束点比较plen和pir：
+plen <= pir，plen=0；
+plen > pir，plen = plen – pir。
+如果刷新时间点和调度出来的帧尾eop重合，刷新时间点延后一拍。
+5.2.4.1 PORT CAR
+CAR机制端口承诺突发值pbs，实时监测端口累计帧长：
+plen > pbs，plen保持不变，端口报文丢包；
+plen <= pbs，端口报文停止丢包。
+5.2.4.2 ETH PORT PAUSE
+PAUSE机制端口的承诺突发值cbs，反压水线dps0和撤销反压水线dps1分别可配，实时监测端口累计帧长：
+plen >= cbs + dps0，端口pause有效；
+plen < cbs – dps1，端口pause失效。
+IPS模块提供基于缓存占用流控和入端口流量两种机制流控开关独立配置，支持任选一种、同时打开和同时关闭。
+IPS端口CAR功能和端口pause功能使能可独立配置。
+5.2.5 SOP/EOP Legal Check of Packet
+IPS会对报文的sop/eop合法性进行检查，如果出现异常则打上drop，并给出丢弃原因。异常类型如下描述。
+ eop丢失
+Figure 5.2-2 EOP 丢失
+如上图所示，在第二个sop 处添加一个eop 作为一个报文，并且打上mac_err 的
+drop_reason，第二个sop 到eop 的报文作为正常报文。
+ sop 丢失
+Figure 5.2-3 SOP 丢失
+如上图所示，sop 丢失，逻辑把eop 后到下一个eop 的所有报文数据直接丢弃，统计丢失sop。
+ sop/eop 重合
+Figure 5.2-4 SOP/EOP 重合1
+Figure 5.2-5 SOP/EOP 重合2
+如上图所示，sop/eop 重合的情况，假设前面有sop，那么会把前面的sop 到sop/eop 之间
+的数据打上drop_reason 并作为丢失eop 统计。
+假设前面是eop，只会丢弃sop/eop 这拍的数据，并作为丢失sop 统计。
+5.2.6 Frame Exception Check
+IPS 会对报文的超长帧、超短帧、错误帧进行检查。
+ 超长帧检查
+通过CPU 配置long_frm 对超长报文长度进行限制，当包长超过long_frm 时，截取
+long_frm 的数据作为一个包，剩下部分截断，将包存入缓存，并上报HA 模块丢弃原因为
+超长帧过滤。各个端口的配置是独立的。
+ 超短帧检查
+通过CPU 配置short_frm 对超短报文长度进行限制，当包长小于short_frm 时，将包存入
+缓存，并上报HA 模块丢弃原因为超短帧过滤，默认值是60（不包括4 字节CRC）。最
+小支持17 字节，因为小于等于16 字节的报文会统计为毛刺报文直接丢弃。当是PIE 报文
+时，有独立的配置门限pie_short_frm。
+ 错误帧检查
+由各个端口送过来的接收帧错误信号进行判断，与eop 同时有效。当此信号为1 时，表示
+接收的帧为错误帧，将包存入缓存，并上报HA 模块丢弃原因为错误帧。当该报文既是错
+误帧又是超长或超短帧时，标记为错误帧。
+ 毛刺帧检查
+当各端口发送过来的报文长度小于或等于16 字节时，直接丢弃，统计为毛刺帧。
+5.2.7 PIE Interface
+PIE_IF 处理IPS 和PIE 之间的时序，接口数据64bit，重组成128bit 位宽的数据，并请求
+SCH 的调度；
+支持对报文进行sop/eop的合法性检查，超长帧/超短帧/错误帧的检查；统计报文长度；
+支持PIE通道TCP/UDP Checksum计算，可配置使能；
+支持PIE通道IPv4 Checksum计算，可配置使能；
+支持短包补零功能，可配置使能，短包长度可配置，默认是60Byte（不包括FCS）。
+5.2.7.1 Checksum Calculation
+5.2.7.1.1 TCP/UDP Packet Checksum Calculation
+为提升CPU的处理性能，对于CPU发送的IPv4/IPv6承载的TCP/UDP报文，逻辑支持对TCP/UDP checksum域的替换。
+TCP/UDP的checksum计算需要的字段包括：IP伪报头，TCP/UDP Header，TCP/UDP Payload。这三个字段在报文格式里面是不连续的。
+TCP/UDP checksum计算所需要的控制信息如下：
+Field Description
+CSS[7:0] TCP/UDP CHECKSUM域计算的开始位置，单位是1字节。
+CSUM_TYPE TCP/UDP类型指示，用于计算checksum位置偏移。
+          0：UDP，checksum相对css偏移6字节；
+          1：TCP，checksum相对css偏移16字节。
+CSUM_EN  CHECKSUM计算使能。
+         0：逻辑不计算checksum；
+         1：逻辑计算checksum。
+Figure 5.2-6 TCP/UDP Checksum计算控制信息
+CPU发送的报文在PKT_INFO里面标识的信息如上表所示。CSS(Checksum Start)用于指示开始计算TCP/UDP报文Checksum的位置；CSUM_TYPE指示报文类型是TCP还是UDP，UDP报文Checksum相对CSS偏移6字节；TCP报文Checksum相对CSS偏移16字节。CSUM_EN指示Checksum使能，高电平有效。
+由于IP伪报头与TCP/UDP数据在报文中的位置是不连续的，CPU需要计算出IP伪报头的16bit数据并填 充进TCP/UDP的Checksum域。
+IPS接收到PIE发送的报文，使用CSS开始位置到报文结束位置的数据进行checksum的计算，计算完成后将checksum填入TCP/UDP的checksum域。
+注意：1、计算checksum时，如果软件对报文进行padding操作，padding值必须是0才能保证checksum值计算正确，计算长度是奇数时，最后1字节低位补8bit全零。
+2、checksum域的位置不支持奇数字节配置。
+ IPv4 承载的TCP CheckSum
+计算范围：伪首部、TCP首部、TCP数据。
+包含伪头：是，伪首部加在TCP首部之前，其中PTCL为TCP的IPv4协议号，TCP Length为TCP首部和TCP数据的总长度（由IPv4首部中的Total Length域计算得出，以Byte为单位）。
+Figure 5.2-7 TCP报文首报
+Figure 5.2-8 IPv4承载的TCP报文伪首部
+ IPv4 承载的UDP CheckSum
+计算范围：伪首部、UDP首部、UDP数据。
+包含伪头：是，伪首部加在UDP首部之前，其中PTCL为UDP的IPv4协议号，UDP Length为UDP首部和UDP数据的总长度（由IPv4首部中的Total Length域计算得出，以Byte为单位）。
+Figure 5.2-9 UDP报文首部
+Figure 5.2-10 IPv4承载的UDP报文伪首部
+ IPv6 承载的TCP CheckSum
+计算范围：伪首部、TCP首部、TCP数据。
+包含伪头：是，伪首部加在TCP首部之前，其中Next Header为TCP的IPv6协议号，Upper-Layer Packet Length为TCP首部和TCP数据的总长度（由IPv6首部中的Payload Length域与各扩展头的长度计算得出，以Byte为单位）。
+Figure 5.2-11 IPv6报文首部
+Figure 5.2-12 IPv6承载的TCP报文伪首部
+ IPv6 承载的UDP CheckSum
+计算范围：伪首部、UDP首部、UDP数据。
+包含伪头：是，伪首部加在UDP首部之前，其中Next Header为UDP的IPv6协议号，Upper-Layer Packet Length为UDP首部和UDP数据的总长度（由IPv6首部中的Payload Length域与各扩展头的长度计算得出，以Byte为单位）。
+5.2.7.1.2 IPv4 Packet Checksum Calculation
+IPv4报文头的Checksum计算跟TCP/UDP计算方案类似，也是采用软硬件配合的方式，由软件给出相关报文指示（IPS不解析报文格式），硬件进行具体运算并刷新。
+软件指示域如下： Field Description
+IPV4_CSUM_START[7:0]
+IPv4 Checksum域计算的开始位置，单位是1字节。
+IPV4_CSUM_EN
+CHECKSUM计算使能。
+0：逻辑不计算checksum；
+1：逻辑计算checksum。
+Figure 5.2-13 IPv4 Checksum计算控制信息
+ipv4_csum_en表示是IPv4报文，且需要IPS进行IP头Checksum计算；
+ipv4_csum_start表示IP头Checksum计算的起始位置，单位1字节。
+硬件解析的域如下：
+ipv4_csum_ihl[3:0]表示Internet Header Length IPv4头长度，单位为4字节。从ipv4_csum_start当前字节低[3:0]取出，其值最小为5，此时Options不存在。IPv4包头长度最小为20字节，最大为60字节。如果超过此范围，逻辑告警。
+IPS逻辑在ipv4_csum_en有效时进行IPv4报文头checksum计算，计算范围从ipv4_csum_start到ipv4_csum_ihl[3:0]*4字节位置，计算结果刷新到ipv4_csum_start + 10的固定位置。
+PIE报文调度过程中需要再停止1拍把计算结果写入MEMP。
+约束：
+ 只支持IPv4头checksum的计算，不支持IPv6头的checksum计算；
+ 要求软件配置原始header checksum=0。
+IPV4
+31~29 28~16 15~12 11~8 7~0
+0 dmac[47:16]
+1 dmac[15:0] smac[47:32]
+2 smac[31:0]
+3 Ethernet type(16bits)--0x0800 Version=4 IHL DSCP/TOS
+4 Total length Identification
+5 Flags Fragment offset TTL Protocol
+6 Header checksum SIP[32:16]
+7 SIP[15:0] DIP[32:16]
+8 DIP[15:0] options
+Figure 5.2-14 IPv4报文结构
+注意，逻辑不支持以下异常配置：
+逻辑增加软件异常配置告警，包括如下：
+ipv4_csum_start配置奇数异常；
+ipv4_csum_start配置大于等于报文长度异常；
+ipv4_csum_start配置小于14字节异常（小于二层报文头）；
+ipv4_csum_start配置大于244字节异常（已超过协议要求，并且逻辑最大只支持256字节内的checksum域写入）；
+ipv4_ihl小于等于4。
+5.2.7.2 PIE PORT short packet zero padding
+IPS会对短包进行补零。由CPU配置短包补零使能，以及补零范围。当PIE的报文被检测为短包且配置了短包补零使能时，将该报文补到配置的长度，范围是57~64字节。
+5.2.8 Error Handling
+ 超长和超短帧丢包，配置长度门限丢包；
+ MAC ERR丢包，包括MAC打上错误标记丢包、EOP异常丢包，不可配置；
+ PON FCS ERR丢包，包括PON打上错误标记丢包、SOP/EOP异常丢包，不可配置；
+ 入口CAR丢包，可配置使能和水线。
+以上这几种情况都是标记drop_reason，数据还是需要写入MEMP。
+ SOP异常丢包，报文直接丢弃不可配置；
+ 包长小于17字节，报文直接丢弃不可配置。
+以上这几种情况报文直接在IPS丢弃，不需要输出FCB。
+5.2.9 Performance
+IPS内部调度固定1拍写入一个128bit到MEMP。
+IPS最高频率工作在250MHz，最大调度速率250*128 = 32Gbps，远大于上下行18Gbps(4GE(4G)+10GEPON(10G)+RGMII(1G)+1(PIE/WOE/2.5GE)(3G))流量，突发250us的需求。
+从IPS给HA的报文只有报文头，所以长度是60B~128B，加上两拍FCB，通过计算可以得到65B的包长性能是最差的。(65+4+20)*8*250M/7次=25.42Gbps，满足系统要求的18Gbps。
+考虑突发情况，PIE瞬间突发速率可以达到16Gbps，因为软件最多可能连续发32个报文。
+所有端口并发线速，4GE(4G)+10GEPON(10G)+RGMII(1G)+1PIE(16G)=31Gbps。
+可以算出需要缓存的报文个数是：(31G-25.42G)*(4+9)*32*4/(8*85)=17个。
+其中4表示最差情况下PIE前面有4拍FCB，9表示65字节的包有9拍，32表示有32个PIE报文，4表示4ns，因为时钟是250M。
+由于IPS调度机制是分组调度SP+RR方式，组间是SP，组内是RR。PIE和PRBS属于内部端口组，优先级比外部端口组低，因此PIE的突发不会影响外部端口组的调度性能，只是出现以上情况PIE突发时，IPS会反压PIE，PIE可以接受IPS反压停止发包，因此IPS与PIE接口不需要缓存报文吸收短包性能突发。
+5.2.10 Power Management
+5.2.10.1 Dynamic Frequency modulation
+IPS监控各个端口当前的接收数据请求状态，根据流量给各端口配置不同权重，累加有数据请求的端口权重，累加权重与预设的三级阈值比较，将2bit结果送给CRG，CRG根据结果调整频率。
+IPS端口 权重配置寄存器 权重默认值
+NNI NNI_LP_WEIGHT 10
+PRBS PRBS_LP_WEIGHT 1
+PIE PIE_LP_WEIGHT 1
+WOE WOE_LP_WEIGHT 1
+GE*5 ETH_LP_WEIGHT 4
+全部端口权重       42
+Table 5.2-2 动态调频入口权重表
+lp_st[1:0] 频率等级 参考频率MHz 典型场景
+0 0 50 空闲状态
+1 1 100 端口总流量2Gbps
+2 2 150 端口总流量6Gbps
+3 3 250 端口总流量10Gbps
+Table 5.2-3 动态调频档位表
+各端口累加权重的计算公式：端口权重（weight）× 端口报文统计状态（status）。以GE0端口为例，req=1，status=1；req=0，status=0。
+因此所有端口的累加权重weight_sum = ge0_weight × ge0_status + …… nni_weight × nni_status。
+5.2.10.2 PON Low Power
+IPS上报PON入口进入低功耗脉冲和唤醒低功耗脉冲。
+当PON口无数据请求时间大于进入低功耗配置门限(单位1us)时，上报进入低功耗脉冲；
+当接收PON口报文个数大于唤醒低功耗配置门限时，上报推出低功耗脉冲。
+5.2.11 DFx Features
+ 支持对WOE、PIE、PRBS、ETH0~5、NNI、PON的如下统计
+接收报文数目统计；
+接收报文丢失SOP数目统计；
+接收报文丢失EOP数目统计；
+接收超长报文统计；
+接收超短报文统计；
+接收MAC报错报文数目统计；
+接收毛刺报文数目统计；
+端口CAR丢弃统计；
+端口累计帧长状态寄存器；
+端口VALID信号异常统计；
+PIE的CSS异常统计；
+PIE端口短包填充统计。
+ DEBUG寄存器如下
+PIE CHKSUM DEBUG寄存器；
+各端口请求、读使能和反压信号状态寄存器0~1；
+PFE_FIFO DEBUG寄存器；
+HA_FIFO DEBUG寄存器；
+CELL_FIFO DEBUG寄存器。
+ 中断寄存器
+IPS中断寄存器；
+IPS中断掩码寄存器；
+IPS中断置位寄存器；
+ECC控制寄存器；
+ECC校验错误状态寄存器。
