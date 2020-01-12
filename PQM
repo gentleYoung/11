@@ -1,0 +1,257 @@
+5.4 PACKET QUEUE MANAGER (PQM)
+PQM接收HA新报文信息，将HA解析出的报文信息写入MEMP 中报文FD位置并根据HA送来的报文优先级入PQM内部4个队列。PQM进行入口队列资源管理，在系统出现拥塞的时候，对报文进行有策略丢弃。PQM统计PSA的空闲线程，当PSA有空闲的线程时PQM把新的报文头送给PSA处理。响应PSA Pull命令，从MEMP读出报文送往PSA。 PQM响应PSA的Dispatch命令，发送帧数据到PE进行编辑，可以根据Dispatch命令发送整帧、帧头到PE。
+5.4.1 Main Feature
+ 支持多播硬复制；
+ 支持入队管理：
+o HA送来的原始报文最多支持4个优先级报文队列(PRI) ；
+o PSA Dispatch 指示硬复制的多播根报文最多支持4个优先级报文队列(PRI)；
+o 各个优先级报文队列，可以分别配置尾丢弃、PLB拥塞丢弃门限、拥塞门限；
+o 各个优先级报文队列，以可配置的SP+WRR/DWRR方式调度出队；
+o 原始报文队列总深度最大支持3K，多播根报文队列总深度为128Packet；
+ 当PSA有空闲线程时，PQM从MEMP读取新报文头数据并发送到PSA：
+o 将报文的前128Byte数据+32Byte FD信息交给PSA；
+o 上交的数据包括报文FD控制信息，如：报文类型、报文长度等；
+ 响应PSA获取数据的命令，从PLB读取数据送给PSA，支持以下命令：
+o Pull_more；
+o Pull_reset。
+ 支持新报文和 Pull命令之间的RR调度。
+ 支持原始报文和组播（硬复制）复制报文的调度和shaping。
+ 响应PSA 的Dispatch命令，发送帧数据到PE进行编辑，可以根据Dispatch命令发送整帧、帧头到PE。
+ 管理PAC_ID资源，申请和释放PAC_ID，PAC_ID可用数量可以配置，最大支持96个PAC_ID。
+ 管理WGT_ID资源，申请和释放WGT_ID，WGT_ID数量支持128个。
+ 根据PSA指示释放PLB Cell资源。
+ 支持PSA命令的正确性的检测。
+ 支持OE保序流ID的映射；
+ 统计PQM的资源占用情况，经过加权计算后提供给CRG，作为调整频率的依据。
+5.4.2 Terminology
+The following terms have special meanings in this section.
+Term Description
+FD 帧对应的描述符
+PD PAC_ID 对应的描述符
+MEMP Memory Pool，内置缓存空间，使用SRAM搭建。
+PQM Packet Queue Manager，入端口报文队列管理。
+FAM Free Address Manager
+PE Packet Edit
+PAC_ID/PID 报文ID
+WGT_ID/WID 权重ID，PQM 用来绑定多播根报文。
+MCID 多播ID，用来绑定出口缓存中的多播报文。
+Table 5.4-1 PQM Terminology
+5.4.3 PQM Overview
+Figure 5.4-1 PQM Overview Diagram
+5.4.4 Performance
+5.4.4.1 Throughput
+接收HA 的FD 为8cycle/pkt， 入队性能为250MHz/8 = 31.25Mpps
+PQM数据总线宽度128bit， 10 个DP_CLK cycle 处理一个Cell； PSA NEW Packet 性能
+为 250MHz/10 * 75% = 18.75 Mpps （75%为MEMP 的读效率，内部流水可以无开销）。
+PE 接口带宽为128bit * 250MHz * 80% = 25.6Gbps (80%为流水效率)。
+5.4.4.2 Latency
+空载时，报文提交给PSA 时延约为200cycle， 200*4ns = 800ns
+5.4.5 HA FCB Process
+Figure 5.4-2 HA FCB Process
+HA 解析完帧头信息后，发送32Byte 的原始报文FD 给PQM。PQM根据报文的长度、队
+列优先级信息和当前的队列拥塞状态进行入队判决，如果报文成功入队，PQM根据报文
+头指针向MEMP 写入这32Byte 的FD 信息，同时更新相应的IQM的队列信息，譬如队尾
+指针，队列报文统计等。如果报文入队失败或HA 指示丢弃（可配置是否丢弃）的报文，
+则PQM向FAM释放PLB 缓存资源，并统计丢弃报文个数。PSA 指示的硬复制的报文不
+需要将FD 写入MEMP。
+入队判决流程：
+Figure 5.4-3 EnQueue FLOW
+5.4.6 Priority Queues Scheduling
+Figure 5.4-4 Priority Queues Scheduling
+PQM支持4 个原始报文优先级队列,原始报文优先级队列可以配置丢弃门限，单位为PLB
+Cell 数，所有原始报文队列的深度之和等于PLB Cell 数量。 支持4 个多播根报文优先级
+队列，多播根报文优先级队列可以配置丢弃门限，单位为根报文个数，所有多播根报文队
+列的深度之和最大等于128。
+PQM 内部维护一个PSA 的空闲线程计数器，当PSA 释放一个线程会给PQM 一个加的统
+计脉冲，当PQM送出一个新报文给PSA 时，空闲线程计数器减一。当空闲线程计数器的
+值为非零时，优先级队列里的报文才能调度出队。
+4 个原始报文队列和4 个多播根报文队列时展平在一起参与调度的，每个队列有所属自身
+队列的3bit 的优先级配置和4bit 的WRR/DWRR 权重配置值，当队列的优先级配置的值
+越小时，优先级就越高，配置优先级相同的队列调度优先级一样，组内做WRR/DWRR
+调度；
+如下图所示：原始报文队列0、1 和多播队列0 配置成同一优先级，譬如配置成7；原始
+报文队列2、3 和多播队列1 配置成同一优先级，譬如配置成6；多播队列2、3 配置成同
+一优先级，譬如配置成5；那么调度关系就是：
+首先：
+原始报文队列0、1 和多播队列0 组内进行WRR/DWRR 调度， 标记为组7；
+原始报文队列2、3 和多播队列1 组内进行WRR/DWRR 调度，标记为组6；
+多播队列2、3 组内进行WRR/DWRR 调度，标记为组5；
+然后：
+组间进行SP 调度，调度优先级为组5 > 组6 > 组7;
+Figure 5.4-3 优先级队列调度
+5.4.7 Shaper
+PQM支持针对队列输出进行shaper 线速：
+ 支持对每个原始报文队列输出分别进行shaper 线速；
+ 支持对每个组播队列输出分别进行shaper 线速，线速对象为出口叶子报文；
+ 支持对4 个原始报文队列整体输出进行shaer 线速；
+ 支持对4 个组播队列输出整体进行shaper 线速，线速对象为出口叶子报文；
+ 支持对所有8 个队列输出整体进行shaper 线速。
+每个Shaper 支持开关可配置、BPS/PPS 模式可配置、速率可配置、桶深可配置、帧长修
+正因子可配置，具体配置说明参见nManager。
+Shaper 几个关键参数配置建议：
+ 桶深（xbs）配置建议：
+o 在BPS 模式下：
+ xbs 建议大于2 倍MTU（最大包长），避免令牌溢出；
+ xbs 建议大于xir*1Mbit*8US（当前的刷新时间）/8(byte)，即大于
+xir；
+o 在PPS 模式下：
+ xbs 建议大于2*2500（2500 为每个报文减掉的令牌数）；
+ xbs 建议大于xir；
+ 帧长修正因子（adj）配置建议：
+o 在BPS 模式下：PQM模块shaper 计算，是按照“有效包长-CRC 长度”作
+为每个报文的令牌，如需调整，比如shaper 带宽希望考虑CRC，则该寄存
+器设置为4，表示每个报文减掉“有效包长（包含CRC）”个令牌。
+5.4.8 PULL Command Process
+Figure 5.4-4 PULL 命令处理
+PSA 开始处理报文后，会发送PullMore、PullReset 指令来获取报文数据，PSA 用
+PAC_ID 来标识每条指令，Pull More 命令会以1Byte 为粒度进行。
+PQM首先检查指令的合法性，包括PAC_ID 错误、数据范围错误。在执行过程
+中，PQM会检查指令执行过程的正确性。正确执行的指令会返回命令正确执行指示和报
+文数据，未能正确执行的指令只返回错误指示和错误类型。
+PQM会按命令接收的顺序返回数据。
+如果空闲线程计数器非0 和Pull 命令同时有效时，两者之间进行RR 调度，新报文头
+数据和Pull 命令返回的数据通过同一数据接口发送给PSA。
+PullMore：以Byte 为粒度，初始指针在报文的第129Byte（因为报文的前128B 已经交给
+PSA）， 微码一次最多可以Pull 64Byte， 因为PQM 的PLB 缓存Cell 大小是160B，当
+Pull More 的长度跨PLB Cell 时PQM 只返回本Cell 的数据，在数据返回时通过status 告诉
+微码还剩多少数据待返回Cell。即PQM不支持跨Cell 读取报文，当一个PullMore 被
+PQM发现跨了Cell 之后，PQM只返回当前Cell 指针指向的Cell 剩余的数据，下一个cell
+的报文内容不读取也不返回，需要微码根据PullMore response 的状态判断是否还需要再发
+送多一个PullMore 指令将上次未返回的在下一个cell 的报文读出来。这个时候，微码只
+需要指示需要推窗的大小。
+PullReset：重新将报文的前128Byte（包长小于128Byte，则为实际包长）交给
+PSA，PullMore 指针跳回报文的第129Byte（第二个Cell 地址的Offset 为0 的位置）。
+Pull More 命令的处理：
+PQM按照160Byte 来维护Pull More 指针，新报文上交160Byte 给PSA 之后,Pull More 初
+始指针落在报文的第二个Cell offset 为0 的位置，见下图蓝色箭头。
+Pull More 的PLB 当前 Cell 地址和Cell 内Offset 基于Pac_id 记录于PQM 的PPTR 表中。
+Cell 内offset 由PQM根据Pull 长度来维护，譬如第一次Pull 了55Byte， 那么PQM就把
+Cell 内Offset 移到55Byte 的位置，第二次Pull 长度为8 Byte，Cell 内Offset 移到63Byte
+的位置。PSA 给PQM的Pull 命令只需要提供Pull 长度，不需要offset。Pull 长度以Byte
+为粒度 ， 受PSA 处理的限制，一次PULL 最大的长度为64Byte。
+Figure 5.4-5 Pull More Process Diagram0
+如果Pull 命令的长度没有跨越160Byte Cell 边界，即从之前记录的Pull 的Offset 位置加上
+本次Pull 命令的长度不大于160，则PQM反馈Pull 命令指示的Len 长度的数据，Pull
+Response 接口的Status 指示为0。如果Pull 命令的长度跨越160Byte Cell 边界时，PQM只返回本Cell 的数据，下一个Cell
+的数据不返回，并通过Pull Response 接口的Status 指示微码还剩下多少没有返回，微
+码收到后重新发一个剩余长度的Pull More 命令来PULL 剩下的数据。
+如下图所以，当前Cell offset 是在106Byte 位置， 本Cell 还剩54Byte 时， PSA 的
+Pull more 长度为60Byte，此时PQM只返回本Cell 的54Byte, offset 走到下一个Cell 的0
+地址，并在返回数据时通过Response 状态信号告诉微码还剩6Byte 的数据未返回，微码
+收到数据后再重新发一个Pull 6Byte 的命令。
+Figure 5.4-6 Pull More Process Diagram1
+5.4.9 PULL Command Set
+PQM 模块响应Quark 的Pull Reset/More 命令，给Quark 回复相应长度的
+Head/Body 数据；并根据“O”接口的FreeThread 指示，给Quark 发送新报文的FD（报
+文描述信息）和head。
+下面介绍Pull Reset/More 命令的请求和应答格式。
+K接口Request KK接口Response PAC_ID CMD START_LOC PAC_ID CMD RSP_ID STATUS 其他
+PullReset
+合法检查：0~95，且已经分配过
+=1
+不关注
+同K
+同K
+同K
+Bit[7]==0x0，表示无异常；
+Bit[7]==0x1，表示异常，B[6:4]表示错误编码；
+OF_ID=0；
+DEFAULT_PF_ID=0。
+PullMore
+=2
+[7:0]：不关注；
+[15:8]：Pull长度，进行合法检查：0~63表示1~64字节；
+同K
+同K
+同K
+Bit[7]==0x0，表示当前cell剩余长度小于Pull长度，Bit[6:0]指示待返回的数据长度；
+Bit[7]==0x1，表示异常，B[6:4]表示错误编码；
+OF_ID=0；
+DEFAULT_PF_ID=0。
+CMD非法
+不关注
+除1、2以外
+不关注
+同K
+同K
+同K
+Bit[7]==0x1，表示异常，B[6:4]表示错误编码；
+OF_ID=0；
+DEFAULT_PF_ID=0。
+PullNew
+PQM根据线程统计实现发送，不关注K接口Request
+PQM分配
+=0
+=0
+Bit[7]==0x0，表示无异常；
+Bit[7]==0x1，Bit[6:0]表示异常编码
+OF_ID和DEFAULT_PF_ID有PQM查表获得。
+Table 5.4-2 Pull More/Reset Commond
+注：在Pull More/Reset 的Response时，STATUS异常编码需要和COP的异常编码保持统一，STATUS[7:4]，使用除13、14、15三个以外的编码。
+5.4.10 Dispatch Command Process
+Dispatch命令有以下几种类型：
+o PQM根据WGT_ID维护硬复制的多播叶子份数，当收到多播硬复制的首叶子报文的Dispatch命令时，读出整包发给PE处理，如果首叶子Discard，则指示下一份叶子为首叶子，并读出整包发给PE，释放叶子PAC_ID；
+o 硬复制中间叶子报文的Dispatch命令，PQM只读出报文头发给PE处理，释放叶子PAC_ID；
+o ，PQM根据Leaf_num和叶子份数统计识别到当前Dispatch命令是硬复制的最后一份报文时释放根报文的PLB资源，释放叶子PAC_ID；
+o Copy to Copy:微码对硬复制的叶子再做复制的情况，PQM根据freePkt指示统计硬复制份数，Copy to Copy 叶子会跟硬复制的叶子共享Body.
+o 单播报文，把整帧数据发送给PE，此时FreePkt有效，释放PAC_ID和PLB缓存；
+o PQM收到Discard命令时，不读MEMP，若FreePkt有效且非多播硬复制的叶子报文，释放PAC_ID和PLB缓存，只发送报文FCB给PE，通知PE丢弃该报文的EC和ED。若多播非最后一份叶子，Freepkt有效时只释放PAC_ID，不释放PLB，PQM收到最后一份叶子时才释放PLB。若discard有效但FreePkt无效的非多播叶子，不读MEMP，发送丢弃FCB给PE，不释放PAC_ID和PLB。多播硬复制叶子的PAC_ID是否释放由微码决定，PLB释放由PQM决定。
+o 非法PAC_ID命令（PAC_ID的值96~127）。当收到这种PAC_ID 的Dispatch命令的时候，不读MEMP，直接将命令发到PE，同时把丢弃标志置1 。
+o PSA指示PQM进行硬复制的（通过mc信号指示硬复制），PQM入队保存多播根报文信息，释放多播根报文的PAC_ID，多播根报文送入优先级队列；
+PQM综合Dispatch命令和PAC_ID描述符来判断命令正确性，以下类型的命令被作为错误命令处理：
+o 未分配给PSA的PAC_ID命令将被丢弃，并产生告警。
+o PSA复制组播叶子分数超过阈值，PQM会丢弃数据，并发送Discard指示给PE。
+5.4.11 Memery Pool Interface
+PQM和MEMP之间有1个写接口和2个读接口，采用FIFO接口，FIFO位于MEMP。
+PQM通过写接口把从HA收到的FD写入PLB。
+PQM通过读接口1完成PSA的pull命令和新报文头的数据读取。
+PQM通过读接口2读出报文数据发送给PE。
+PQM受MEMP 接口FIFO的空满状态反压。
+5.4.12 PAC_ID Management
+PQM从原始报文优先级队列调度出报文，分配PAC_ID，送给PSA处理。PSA发送Dispatch命令后，如果是Dispatch命令中的FREEPKT指示有效，PQM在报文数据发送到PE后，释放PAC_ID。
+对于大于95的pac_id，是没有报文数据缓存到MEMP的。当收到这个PAC_ID 的Dispatch命令的时候，不读MEMP，直接将命令发到PE，同时把丢弃标志置1。
+为节省PAC_ID数量，只有处于以下状态的报文会占用PAC_ID：
+A.PSA处理中的报文或在OE队列中等待发送给PQM的报文。
+B.在PQM发送队列中等待发送给PE的报文。
+在原始报文队列中等待处理的原始报文不占用PAC_ID。
+C．进入多播根队列前的报文。
+PQM收到命令时会检测对应PAC_ID的当前状态和命令的符合度。PAC_ID有2种状态，收到与当前状态不匹配的命令会产生中断告警。
+o PAC_ID已经回收不能再收到PSA命令；
+o PAC_ID的值非法；（96~127）
+5.4.13 Ordered Flow ID MAPING
+支持保序流ID的映射，PQM设置一张映射表，表项深度为128，索引为{chan,pqm_pri}, 表项内容是保序流ID。pqm_pri为HA送给PQM的2bit入队优先级。
+5.4.14 Multicast Process
+硬复制流程：
+微码对原始报文解析之后，如果报文需要进行硬复制，则发送硬复制的Dispatch 命令给PQM，通过mc信号指示PQM进行硬复制，复制份数通过LeafNum标识。PQM申请WGT_ID，保存多播根报文信息 ，释放多播根报文的PAC_ID，报文入多播根优先级队列，统计队列资源；
+多播根报文出队时，从MRD表里获取多播根信息，进行报文的复制，每个多播根队列维护一个叶子序列号，每发送一份叶子到PSA，序列号加1。每个多播队列以一份叶子的粒度参与调度。
+PQM基于WGT_ID统计Dispatch叶子份数，当某个WGT_ID的Dispatch的叶子份数等于复制份数时，释放多播根的PLB资源。
+PQM在PSADispatch 首份叶子时，申请MCID，MCID随报文FCB送给PE。
+Copy to Copy : 微码对硬复制叶子再做复制
+Copy to Copy 的叶子跟原来的叶子共享根报文，所以WGT_ID 也是同一个，当微码指示freePkt 时才维护WGT_ID的权重。如下图所示，标识为1，2，3，4的叶子是硬复制的叶子报文，标识为a,b,c的为叶子2的Copy to Copy的叶子报文，叶子报文a、b、c的pac_id就是叶子报文2的pac_id, 在a/b/c叶子中如果有叶子的Freepkt指示有效才去刷新
+WTB 中WGT_ID 权重值，下图的例子会有6 份同Body 的报文发送到PE。A/B/C 三份叶
+子可以Dispatch 整包或首CELL 到PE。Figure 5.4-7 Copy to Copy
+5.4.15 Backpressure & Drop
+5.4.15.1 HA Backpressure
+PQM通过接口FIFO 的将满信号反压HA，HA 接口FIFO 在2 种情况下会出现将满。
+1、丢包释放FIFO 将满反压。
+2、MEMP 写接口反压。
+Figure 5.4-8 HA 反压
+5.4.15.2 Pull interface Backpressure
+PQM通过接口Pull 命令接口FIFO 的将满信号反压PSA Pull request 接口，PQM的Pull 相
+应接口受PSA 的反压。PULL 命令和New Pkt 之间有调度，调度的时延和读MEMP 的时
+延会导致PULL 接口FIFO 将满。
+Figure 5.4-9 PSA PULL 反压
+5.4.15.3 Dispatch interface Backpressure
+PSA Dispatch 命令接口受接口FIFO 的反压，该反压是可以逐级传递的，当PE Dispatch 报
+文数据接口反压PQM时，报文数据接口FIFO 反压MEMP 的读数据，MEMP 的数据
+FIFO 反压到MEMP 的读命令FIFO， 读命令FIFO 再反压回 Dispatch 的命令fifo。
+Figure 5.4-10 Dispatch 反压
+5.4.15.4 PQM Drop
+PQM原始报文优先级队列可通过寄存器PQM_PRI(0~3)_DROP_THRESH 配置丢弃
+产生和取消阈值，队列深度超过阈值时，可以把入队报文直接送回收队列；配置单位为队
+列占用的PLB Cell 数量。
+丢弃的产生阈值必须大于等于取消阈值，软件要保证配置正确。
+1. 尾丢门限：队列缓存的最大深度，当队列里的报文占用的缓存CELL 数目超过
+该水线时，所有进入该队列的报文都被丢弃。
+2. PLB 拥塞丢弃：每个队列有一个PLB 拥塞丢弃水线配置，当PLB 的占用量超
+过本队列的配置水线时，本队列新入队的报文会被丢弃。
