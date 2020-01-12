@@ -1,0 +1,189 @@
+5.8.13 Table Structure
+ EQM_CHID Specification
+芯片中有很多涉及EQM_CHID域，在这统一进行解释EQM_CHID为发送方向的逻辑通道号，其格式如下表所示。
+Table 5.8-2 EQM_CHID
+ QMS Table
+队列属性模板选择，维护:由CPU维护，逻辑只读。 表格名称
+QMS Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H: 256/16 = 16 每项宽度
+32bits×4Word 寻址方式
+索引方式为{队列号/16}，每行存16个队列的模板选择； ECC/PARITY
+PARITY
+Table 5.8-3 QMS Table表基本描述
+Bit Name Description
+长字0
+31
+q3_enq_en
+队列入队使能 1: 入队0：不入队.
+QMC Table
+队列属性模板配置， 维护:由CPU维护，逻辑只读。
+表格名称
+QMC Table 起始地址
+N/A 地址范围
+N/A
+表项数目
+32 每项宽度
+32bits×6Word ECC/PARITY
+PARITY 寻址方式
+索引方式为{队列属性板板号}，每行存1个模板配置；
+Table 5.8-5 QMC Table 表基本描述
+ WRED Table
+WRED模板配置，表项规格为16x128，每个地址存两个模板，共32个模板。维护:由CPU维护，逻辑只读。如果选择模板0，则不根据WRED进行丢弃。 表格名称
+WRED Table 起始地址
+N/A 地址范围
+N/A 表项数目
+16 每项宽度
+32bits×4Word ECC/PARITY
+PARITY 寻址方式
+索引方式为{WRED模板号/2}，每行存2个WRED丢弃模板,共32个模板。
+Table 5.8-7 WRED Table 基本描述
+ QGA Table
+队列组属性表，表项规格为32*192，维护:由CPU维护，逻辑只读。
+QGA Table Specification 表格名称
+QGA Table 起始地址
+N/A 地址范围
+N/A 表项数目
+32 每项宽度
+32×6Word 寻址方式
+索引方式为{group_num} ECC/PARITY
+N/A
+Table 5.8-9 QGA Table表基本描述
+ QLS Table
+队列链表状态表项规格为256x160
+维护:由逻辑维护，CPU只读。
+QLS Table Specification 表格名称
+QLS Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H：256 每项宽度
+32bits×5Word ECC/PARITY
+N/A 寻址方式
+索引方式为实体队列号
+Table 5.8-11 QLS Table表基本描述
+ QDC Table
+队列丢弃和出队统计表，规格为256x192维护:逻辑统计，CPU读清零。
+QDC Table Specification 表格名称
+QDC Table 起始地址
+N/A 地址范围
+N/A 表项数目
+5182H：256 每项宽度
+32bits×6Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为实体队列号
+Table 5.8-13 QDC Table表基本描述
+ PMC Table
+端口MCID丢弃表，规格为16x32维护:逻辑统计，CPU读清零。
+PMC Table Specification 表格名称
+PMC Table 起始地址
+N/A 地址范围
+N/A 表项数目
+5182H：16 每项宽度
+32bits×1Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为映射后的端口号，如下所示：
+0：NNI 1：PRBS 2~5：PIE
+6~13：ETH0~ETH7
+14：WOE 15：保留端口
+Table 5.8-15 PMC Table表基本描述
+PMC Table Structure Bit Field Description
+长字0
+31:0
+Port_mcid_drop_pkt
+当报文入队时，若使用的MCID的数量大于该端口的mcid的丢弃水线(port_mcid_drop_mode)时，统计因此该端口丢弃的报文个数
+Table 5.8-16端口MCID丢弃统计表PMC数据结构
+QDC_BYTE Table
+QDC_BYTE Table Specification 表格名称
+QDC BYTE Table 起始地址
+N/A 地址范围
+N/A 表项数目
+256 每项宽度
+32bits×5Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为实体队列号
+Table 5.8-17 QDC BYTE Table表基本描述
+QMD Table
+队列最大深度统计表，规格为256x32维护:逻辑维护，CPU读清。
+QMD Table Specification 
+表格名称 QMD Table
+起始地址 N/A 
+地址范围 N/A 
+表项数目 5182H：256 
+每项宽度 32bits×1Word
+ECC/PARITY/NO N/A
+寻址方式 队列编号
+Table 5.8-19 QMD Table表基本描述
+ GSSA Table
+通用调度器调度属性表,表项规格为64x96维护:由CPU维护。
+注意：用户级业务调度器和端口级业务调度器仅有4个输入，只需要配置输入端0~输入端3；而用户调度器有16个输入端，十六个输入端都需要配置；
+GSSA Table Specification 
+表格名称 GSSA Table
+起始地址 N/A 
+地址范围 N/A 
+表项数目 5182H：48
+每项宽度 32bits×3Word
+ECC/PARITY/NO N/A
+寻址方式 索引方式为通用调度器编号
+Table 5.8-21 GSSA Table表基本描述
+ QSL Table
+队列调度器连接关系表,表项规格为(256+48) x32，
+维护:由CPU初始化，逻辑维护。
+QSL Table Specification 表格名称
+QSL Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H : 256+48 每项宽度
+32bits×1Word ECC/PARITY/NO
+ECC 寻址方式
+索引方式为输入端，即：
+队列作为输入端，索引为{队列号}；
+通用调度器作为输入端，索引为{队列总数目+通用调度器编号}；
+Table 5.8-23 QSL Table表基本描述
+ STS Table
+调度器令牌状态表,表项规格为(256+48)*32维护:由CPU初始化，逻辑维护。
+STS Table Specification 表格名称
+STS Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H：256+48 每项宽度
+32bits×2Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为调度器的输入端，可能为队列、通用调度器的输出。
+队列输出作为输入端，索引为{队列号}，每行存一个队列输出的配置。队列只能连到通用调度器的输入端。
+通用调度器的输出作为输入端，索引为{Q_NUM+通用调度器编号}，每行存一个调度器输出的配置。
+Table 5.8-25 STS Table表基本描述
+ GSMA Table
+表项规格为(48*16)*32，逻辑维护，CPU可读。
+GSMA Table Specification 表格名称
+GSMA Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H： 48×16 每项宽度
+32bits×1Word ECC/PARITY/NO
+ECC 寻址方式
+索引方式为{通用调度器编号, 调度器输入端编号}，每个调度器保留16个输入端的配置。
+Table 5.8-27 GSMA Table表基本描述
+ SHT Table
+表项规格为48*64。
+维护:由CPU维护，逻辑只读。
+SHT Table Specification 表格名称
+SHT Table 起始地址
+N/A 地址范围
+N/A 表项数目
+48 每项宽度
+32bits×2Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为SHAPER模板号，存储SHAPER模板配置。
+Table 5.8-29 SHT Table表基本描述
+QSCT Table
+队列输出的SHAPER配置及令牌状态表，规格为256*64维护:由CPU初始化令牌和模板选择，逻辑维护令牌数，刷新周期125US。
+QSCT Table Specification 表格名称
+QSCT Table 起始地址
+N/A 地址范围
+N/A 表项数目
+SD5182H：256 每项宽度
+32bits×2Word ECC/PARITY/NO
+N/A 寻址方式
+索引方式为{队列号},每行存一个队列的SHAPER配置及状态。基于队列的SHAPER只支持PIR相关配置及状态。
+Table 5.8-31 QSCT Table表基本描述
