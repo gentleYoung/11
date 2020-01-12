@@ -1,0 +1,155 @@
+按用户VLAN区分多业务的用户侧参数包括用户报文为VLAN Tagged（VLANID范围1-4095）、untagged、priority tagged（即VLANID = 0）以及TLS业务流的情况。Untagged和priority tagged是我们系统相对于TR-101所做的扩展，我们可以为这些特殊报文专门创建业务通道。
+TLS业务流比较特殊，是指用户虚桥接端口上不符合其他业务流的报文的一条通道。如果配置了该业务流，同时配置了指定用户VLAN（或untagged）业务流，用户报文先按指定用户VLAN（或untagged）进行匹配，没有匹配到的所有报文，都认为匹配TLS业务流，走这条特殊的通道上行到网络。TLS业务流的上行VLAN必须是QinQ VLAN。
+用户虚桥接端口上按用户VLAN区分多业务时，允许同时配置的业务流可能出现的情形如下表所示：
+序号	用户侧参数（C-VLAN）	上行S-VLAN	上行处理
+1	特定参数：C-VLAN=1	Common VLAN=100	VLAN切换：1100
+2	特定：C-VLAN=2	stacking VLAN=200
+stacking label=20	VLAN切换：2200+20
+(切换一层，再打一层)
+3	特定：C-VLAN=3	QinQ VLAN=300	直接加一层：3300+3
+4	特定：C-VLAN=0（即priority tagged）	可为Common、stacking、QinQ VLAN	处理和C-VLAN为1-4095时相同
+5	特定：Untagged	可为Common、stacking、QinQ VLAN	Common、QinQ：加一层；stacking：加两层
+6	其他：TLS（所有不匹配到上述业务流的报文匹配到该流）	必须QinQ VLAN	直接加一层
+注意，若用户虚桥接端口上仅配置一条典型的TLS业务流，则该端口上所有报文都允许通过，上行时增加一层S-Tag，下行时剥离该Tag。此时等同于端口上指定上行QinQ VLAN的单业务。
+附：主机上的相关命令示例，红色部分表示一个用户虚桥接端口，蓝色部分表示按用户VLAN进行流分类：
+创建ADSL 用户VLAN为10、20以及TLS业务流的命令（基于VC Port；SHDSL、VDSL2 ATM模式、ATM、E3与之类似）：
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-vlan 10 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-vlan 20 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-vlan other-all rx-cttr rx-index tx-cttr tx-index
+创建VDSL2 PTM模式的用户VLAN为100以及priority tagged、untagged业务流的命令（基于以太端口/PTM端口；以太接入与之类似）：
+service-port vlan vlanid vdsl mode ptm frameid/slotid/portid multi-service user-vlan 100 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid vdsl mode ptm frameid/slotid/portid multi-service user-vlan priority-tagged rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid vdsl mode ptm frameid/slotid/portid multi-service user-vlan untagged rx-cttr rx-index tx-cttr tx-index
+创建GPON的用户VLAN为100的业务流的命令（基于GEM Port）：
+service-port vlan vlanid gpon frameid/slotid/portid gemport gemportid multi-service user-vlan 100 rx-cttr rx-index tx-cttr tx-index
+3.2.7	按用户802.1p进行流分类
+按用户侧802.1p区分业务中较为典型的应用场景是：RG将所有的业务报文打上priority tag，同时按优先级（802.1p）的值区分不同的业务；AN识别出报文中的优先级值，上行切换到不同的S-VLAN。
+还有可能出现的情形是：RG将所有的业务报文打上某一特定VLAN值的VLAN tag，同时按优先级（802.1p）的值区分不同的业务。此时AN的处理是类似的。
+目前仅中国电信提出按用户侧802.1p区分业务的需求。
+大多数情况下，不需要将不同优先级的报文切换到不同的S-VLAN，仅仅需要以用户指定的优先级指出上行时的优先顺序；此时可以仅为该端口创建一条业务通道，同时配置该业务通道的优先级策略为“拷贝优先级”，即信任用户的优先级并将其拷贝到上行S-Tag中。
+ 
+Figure 17 	按用户802.1p区分多业务
+在我们的系统中，按802.1p优先级区分多业务时，还要求一个虚桥接端口上的业务流的用户VLAN相同，或都为priority tagged。在逻辑的处理中，只有VLAN+802.1p都匹配的用户报文才能上行到网络。
+实际运行中，如果为common VLAN或stacking VLAN，上行分别携带一层或两层Tag。对于收到的priority tagged或VLAN tagged报文，上行需要进行Tag切换，即将C-Tag替换为S-Tag（或S-Tag&C-Tag对）。下行时，需要还原用户的Tag，包括802.1p值。
+附：主机上的相关命令示例，红色部分表示一个用户虚桥接端口，蓝色部分表示按用户802.1p进行流分类：
+创建ADSL的仅接收priority tagged且802.1p值为1、3、5的业务流的命令（基于VC Port；SHDSL、VDSL2 ATM模式、ATM、E3与之类似）：
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-8021p 1 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-8021p 3 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-8021p 5 rx-cttr rx-index tx-cttr tx-index
+创建VDSL2 PTM模式用户VLAN为10、802.1p分别为2、4的业务流的命令（基于以太端口/PTM端口；以太接入与之类似）：
+service-port vlan vlanid vdsl mode ptm frameid/slotid/portid multi-service user-8021p 2 user-vlan 10 rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid vdsl mode ptm frameid/slotid/portid multi-service user-8021p 4 user-vlan 10 rx-cttr rx-index tx-cttr tx-index
+创建GPON的仅接收priority tagged且802.1p为7的业务流的命令（基于GEM Port）：
+service-port vlan vlanid gpon frameid/slotid/portid gemport gemportid multi-service user-8021p 7 rx-cttr rx-index tx-cttr tx-index
+3.2.8	业务流处理全流程（普通单播报文）
+3.2.8.1	上行方向
+无论是ADSL接入、VDSL2/以太接入还是GPON接入，业务流都是在业务板逻辑完成主要的处理，包括流分类、业务流的检查处理（IP地址绑定、Tag检查）、判断是否要捕获或转发、MAC地址学习、上行CAR、Tag处理、上行发送。
+ 
+Figure 18 	上行报文在逻辑上的处理流程示意图
+流分类的前提是区分出承载业务流的虚桥接端口：VC Port、GEM Port或以太端口，得到用户的以太报文。得到以太报文的过程本文不进行描述。
+获得用户的原始以太报文之后，系统根据预先进行的配置进行流分类：单业务不进行分类；其他情况根据预先对系统进行的配置，对用户报文进行分类，将不匹配的报文丢弃，匹配后的报文进入相应的业务流进行处理。
+ 
+Figure 19 	流分类处理示意图
+业务流的检查处理中，会进行IP地址绑定的检查和VLAN Tag检查。对于IP报文，如果设置了IP地址绑定，则检查报文的源IP地址是否所绑定的IP地址中的一个，如果不是，则作为非法报文丢弃。对于非IP报文或没有设置IP地址绑定的业务流，不检查IP地址。
+VLAN Tag检查是指根据配置信息检查用户报文的VLAN Tag，比如对于单业务且上行S-VLAN为common VLAN的情况，配置为不接受VLAN Tagged报文，则对于VLAN Tagged报文都会丢弃。
+在进行IP地址绑定检查和Tag检查之后，系统会判断报文是否要捕获的协议报文，包括目的MAC为本板MAC地址的报文、一般管理报文、EAPoL报文、普通ARP报文、ATM的ARP报文、IGMP报文、DHCP报文、PPPoE发现报文、PPPoA终结报文、PPPoA配置报文等，这些报文都可以根据需要配置为“捕获到CPU”或“直接转发”或“侦听”。
+对于非协议报文（普通数据报文），或者需要转发的协议报文，将进入下一步处理：MAC地址学习。对于携带一个新的MAC地址的报文，如果单板允许MAC地址学习，且在该业务流允许学习的MAC数目限制之内，则学习一个MAC表项，表项内容是：S-VLAN ID + 源MAC地址 业务流索引。如果不允许MAC地址学习且该MAC地址在表项中不存在，或者允许MAC地址学习但该业务流的MAC地址已经达到允许学习最大数目，则认为MAC地址学习失败，丢弃该报文。
+学习通过后的报文进行上行CAR处理，即根据配置的流量参数（CIR、CBS、PIR、PBS），对上行的报文进行测量、着色，判断该报文是否超出了业务流允许的上行带宽。如果限速不通过，报文将被丢弃。
+在发送之前对报文进行的Tag处理包括进行VLAN切换、打上单层/双层VLAN、填写优先级等处理。这种处理是基于业务流进行配置的，其中VLAN Tag的处理参见上表“MA5600T中流分类及业务映射处理”；优先级的填写则分为内层和外层：内层仅支持指定优先级，外层则可以配置为指定优先级、拷贝用户的COS优先级、拷贝用户的TOS优先级。处理好Tag之和的报文，就可以进入上行发送队列进行发送了。
+关于CAR处理、优先级处理以及队列调度的其他信息参见“QoS技术交底书”等文档。
+3.2.8.2	下行方向
+下行方向的处理较为简单，首先判断报文是要捕获（协议报文）还是转发，对于要转发的报文，判断是单播还是组播，查找MAC地址表，得到要发往的业务流的索引。然后进行Tag处理（VLAN切换）、下行CAR处理、入队列发送。注意对于不同的接入手段，发送之前可能要将以太报文封装成信元或GEM帧。
+ 
+Figure 20 	下行报文在逻辑上的处理流程示意图
+下行流程中，最关键的就是根据上行学习（或静态配置）的“MAC地址学习表”，查找业务流：S-VLAN ID + 目的MAC地址 业务流索引。其中组播也是使用相同的表，不过得到的不是业务流索引，而是组播组索引，再根据组播组索引查找组播表，得到一组业务流索引。
+MAC地址学习表可以是系统自动学习的（动态MAC地址），也可以是系统操作员手动配置的静态MAC地址，或者是系统根据协议报文（PPPoE、DHCP）动态配置的静态MAC地址。也就是说，无论是否允许MAC地址学习，系统的二层转发功能都依赖于用户的MAC地址。这一限制使得运营商网络的MAC地址空间和用户网络的MAC地址空间混合在一起，网络稳定性、可扩展性存在先天的局限。更好的替代方案是MACinMAC（IEEE 802.1ah）和PBT（Provider Backbone Transport）。
+3.2.9	业务流控制面特征
+业务流的管理和配置主要在IAS软件L2M模块完成，软件设计思路如下。
+1．	业务流实体特点
+我司的DSLAM系统中将每个业务流作为一个实体显式进行管理，每个业务流可以单独创建、删除、查询。
+每个业务流实体有自己的索引，唯一标识该业务流。
+每个业务流的用户侧参数包括虚桥接端口参数（VC Port的VPI、VCI，GEM Port的PortID，以太端口的PortID）、流分类参数（流分类方式和具体参数），这些参数能够唯一确定一条业务流。
+每个业务流可以有自己的描述信息（description，或称UserLabel），它是一个长度为0～63的字符串。
+每个业务流可以且必须加入一个网络侧VLAN。该VLAN可以是Mux类型（只能添加一条业务流）或Smart类型（可以添加多条业务流）；VLAN的模式可以是common、QinQ或stacking。
+每个业务流可以有自己的上行S-VLAN的802.1p优先级，其来源可以是操作员指定的值，也可以配置为拷贝用户报文的CoS（802.1p）优先级或ToS优先级。
+对于stacking VLAN的业务流，可以为每条业务流配置自己的内层VLAN（C-VLAN），以及内层VLAN的802.1p优先级。
+2．	业务流的QoS
+除了上行内外层优先级Remark外，每个业务流还可以拥有自己的带宽配置：指定业务流配置上下行可保证带宽CIR、峰值带宽PIR、可保证突发度CBS、峰值突发度PBS。系统将根据这些配置进行业务流的trTCM（双速率三色标记），实现带宽的充分利用和速率限制。
+3．	业务流的IP地址绑定
+出于安全性的考虑，支持对业务流进行源IP地址绑定。每个业务流最多可以绑定8个IP地址。对于IP报文，如果设置了IP地址绑定，则检查报文的源IP地址是否所绑定的IP地址中的一个，如果不是，则作为非法报文丢弃。
+4．	业务流的MAC地址学习和静态MAC地址
+系统中的转发机制是基于业务流的，每个业务流可以分别学习MAC地址或配置静态MAC地址。系统支持配置每个业务流的动态MAC地址学习数。为了安全性的考虑，可以禁止MAC地址学习，而是依靠手工配置或PPPoE、DHCP协议报文触发配置静态MAC地址来保证合法用户的业务，防御非法用户的攻击。
+5．	基于业务流的其他配置
+系统中的还可以基于业务流进行如下机制配置和控制：
+基于业务流配置组播协议的承载通道和组播视频的承载通道；
+基于业务流配置CID、RID；
+基于业务流启动802.1x认证。
+3.2.10	TLS业务
+上文中多次提到QinQ VLAN以及TLS业务，本节对TLS业务做一下简单总结。
+根据TR-101的定义，TLS业务即Transparent LAN Service，用于商业用户的业务透传：AN不修改用户报文的信息，为用户报文（一般是802.1Q Tag的报文）添加一层S-VLAN Tag（TLS-VLAN）上行到在汇聚网络；在对端AN处剥离添加的S-Tag，还原用户的报文。
+在配置上，TR-101要求AN应能为端口（逻辑端口）配置“是否TLS端口”的属性，该端口上的可以同时支持TLS业务（打上TLS-VLAN）和非TLS业务（针对一组具体C-VLAN，切换为对应的S-VLAN或S-VLAN+C-VLAN对）；并且除了匹配到配置的非TLS业务的报文外，来自该端口的所有其他用户报文都作为TLS业务处理。
+在我们的MA5600T设备中，采用QinQ VLAN支持TLS业务。QinQ即两层802.1Q Tag叠加，外层为AN添加的TLS-VLAN Tag，内层为用户网络携带的C-VLAN Tag。QinQ VLAN组网应用如下图所示：
+ 
+Figure 21 	TLS业务组网应用
+MA5600T系统支持TR-101定义的TLS业务流，即按VLAN区分多业务时配置的典型的TLS业务流。它可以和其他指定用户VLAN的业务流共存于一个虚桥接端口上，并且承载未匹配指定VLAN业务流的其他所有（other-all）用户报文：
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-vlan other-all rx-cttr rx-index tx-cttr tx-index
+除了上述标准的TLS业务流外，我司DSLAM中还对TLS业务流的应用进行了扩展，即支持符合特定用户参数的TLS业务流。
+对于TLS业务应用，AN不应关注用户报文的信息，包括不对这些业务流的协议报文进行捕获（不过对于防御MAC欺骗特性，要求所有业务流的协议报文都进行捕获，否则无法由软件控制应该为业务流配置哪些合法MAC），并且不进行IP地址绑定。不过由于转发机制限制，对于TLS业务报文的MAC地址还是要进行学习的。
+对于TLS业务，一般要求更严格的QoS保证。在MA5600T系统中业务流的QoS机制对TLS业务（以及其他业务）能根据需要提供带宽保证、优先级remark、优先级调度的支持，相关信息请参见“QoS技术交底书”等文档。
+MA5600T系统支持的TLS业务类型汇总如下：
+1）	纯TLS业务：单业务，上行QinQ VLAN的情形；或者按VLAN区分多业务，但仅配置一条other-all的业务流；
+2）	TLS业务和非TLS业务共存（符合TR-101）：按VLAN区分多业务，同时配置other-all的业务流和指定用户VLAN的业务流；
+3）	特定EtherType的TLS业务：按EtherType区分多业务，上行QinQ VLAN的情形；
+4）	特定用户VLAN的TLS业务：按用户VLAN区分多业务，指定用户VLAN值（或指定untagged、指定priority-tagged），上行QinQ VLAN的情形；
+5）	特定用户802.1p的TLS业务：按用户802.1p区分多业务，指定802.1p值，上行QinQ VLAN的情形。
+3.2.11	PVC Bundle
+PVC Bundle不是流分类的技术，但由于和流分类关系紧密，且在我们的系统中是作为流分类的一部分实现的，因此在本文描述。
+以多PVC标识不同的业务，但上行映射到同一个S-VLAN，并用不同的优先级标识不同的业务。这些PVC称为一个PVC Bundle。
+ 
+Figure 22 	PVC bundle应用场景示意图
+PVC Bundle不是一种新的应用模式，而是为了解决这样一个问题：RG启动MAC NAT功能，并且以多VC承载多业务，并且这些业务需要上行到同一个S-VLAN时，AN在下行时无法根据同一个用户MAC和同一个S-VLAN对应到不同的VC，因而无法正确转发。为此，将各个VC和上行报文的802.1p优先级一一对应起来。
+对于PVC Bundle应用，AN需要提供：1）整个PVC Bundle到上行S-VLAN的映射；2）PVC bundle中的各个VC到上行802.1p的映射。这些映射在上行和下行都是需要的。
+PVC Bundle的实现有如下这些约束：
+	PVC Bundle中的VC仅支持单业务流；
+	PVC Bundle不支持AoE（ATM over Ethernet）；
+	PVC Bundle不支持VPI VCI的Autosense；
+	一个xDSL端口上至多存在一个PVC Bundle；
+	一个xDSL端口上允许同时存在PVC Bundle和不属于PVC Bundle的VC。
+在转发平面，PVC Bundle上的转发和普通的业务流的转发有所不同：MAC地址学习表的表项“VLAN + MAC 业务流索引”，此处业务流索引变成了PVC Bundle索引；下行转发时先得到PVC Bundle索引，再结合报文的802.1p值，转发到不同的VC。
+在控制层面，由于系统架构的现状，在实现上我们将“是否属于PVC Bundle”作为业务流的一个属性。即配置PVC Bundle时，不是将某些VC组成一个Bundle，而是在创建业务流时指定它是否属于PVC Bundle。
+配置PVC Bundle的业务流命令行示意：
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci pvcbundle rx-cttr rx-index tx-cttr tx-index
+3.2.12	VC Port上单业务和多业务的自适应
+VC Port作为虚桥接端口的前提是PVC的AAL5封装是Bridge封装。除了Bridge封装外，PVC AAL5封装类型还可以配置为IPoA封装或PPPoA封装。特别地，我司的DSLAM系统支持设置PVC的封装类型为“自适应（auto）”，即实际学习到哪一种AAL5封装，就按哪一种处理。这种配置能够增加运营的灵活性，自动适配终端的封装模式，减少运营商的配置工作量。
+当PVC的AAL5封装为Bridge时，可以将VC Port作为虚桥接端口，进行流分类（比如按EtherType、按用户VLAN），即支持多业务；当PVC的AAL5封装为IPoA或PPPoA时，VC Port不具有桥接端口的含义，不支持流分类，即此时仅支持单业务。我们可以先将PVC封装类型设置为auto，并在PVC上配置桥接的多业务参数和非桥接的单业务参数；在系统实际运行时，如果真实封装类型学习为Bridge，则桥接下的多业务有效，如果学习为IPoA或PPPoA，则非桥接的单业务有效，即实现单业务和多业务的自适应。
+VC Port上单业务和多业务的自适应本质是AAL5封装类型的自适应，不属于本文讨论的流分类的内容；但实现上和业务流的机制关系紧密，因此在本文中进行简单描述。
+典型的应用场景中，对于非桥接PPPoA业务，AN实现PPPoA到PPPoE的IWF，上行到ISP的S-VLAN 1；如果终端工作在桥接方式下，则按EtherType进行流分类，将用户的PPPoE和IPoE业务分开，前者上行到S-VLAN 1，后者上行到另一个S-VLAN 2（参考NEUF Auto封装需求）：
+ 
+Figure 23 	桥接多业务/非桥接业务自适应场景一
+注：上图中，PPPoA和PPPoE一般上行到同一个S-VLAN，其中PPPoA在AN转换为PPPoE；对于ISP来说，不关心最终用户是PPPoA还是PPPoE。
+实现上述配置的命令行如下所示，第一个命令设置VC Port（红色部分）上的AAL5封装类型为auto，第二个命令配置VC Port上的单业务流（绿色部分），后两个命令配置按EtherType区分的多业务流（蓝色部分）：
+encapsulation frameid/slotid/portid vpi vpi vci vci type auto
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci single-service rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-encap pppoe rx-cttr rx-index tx-cttr tx-index
+service-port vlan vlanid adsl frameid/slotid/portid vpi vpi vci vci multi-service user-encap ipoe rx-cttr rx-index tx-cttr tx-index
+桥接业务也可能是按用户VLAN区分多业务，此时PVC上配置业务通道和实际业务运行的示意图如下：
+ 
+Figure 24 	桥接多业务/非桥接业务自适应场景二
+3.3	缺陷分析
+MA5600T系统中流分类技术和标准不太符合或实现方式上可以优化的地方有如下几点：
+1）我们的系统中没有明确的用户虚桥接端口（UBP）的概念，没有基于UBP的直观管理和配置，包括对VC Port的显式配置；基本业务配置针对业务流一一进行配置，形式上不如针对虚桥接端口、运用一定流分类规则（比如分类模板）这种方式。比如TR-101提出VLAN membership，而我们的实现方式是按VLAN进行流分类，虽然功能可以比拟，软件模型、配置方式上却大不一样；
+2）基于VLAN配置QinQ和stacking模式，不如基于用户虚桥接端口或业务流进行模式控制更灵活实用；
+3）业务流的报文处理规则存在隐含规则，对于是否检查VLAN Tag、VLAN Tag的层数采用隐含规则，缺少灵活配置；
+4）没有支持用户侧双层VLAN Tag的处理，即S+C切换（注：在UA5000 IPMB上已经实现该特性）；
+5）流分类是扁平化的，要么单业务，要么按EtherType分类，要么按用户VLAN分类等，不支持既对一个用户的untagged报文进行按EtherType分类又对其VLAN tagged报文进行按VLAN的流分类；
+6）对于PVC Bundle，没有明确进行管理；
+7）业务转发模型，目前基于VLAN+用户MAC进行转发，使得运营商网络的MAC地址空间和用户网络的MAC地址空间混合在一起，网络稳定性、可扩展性存在先天的局限。
+4	技术展望
+1）软件架构方面，建立更加合理的软件模型，明确对虚桥接端口进行管理，实现流分类模板，在业务模型和配置方式上都更加合理（MA5600V8R7实现），比如将QinQ和stacking模式作为业务流的配置属性等；
+2）流分类技术方面，可能还需要扩展，比如支持按MAC地址的流分类，按IP地址的流分类，按报文头各种字段组合进行的流分类。
+3）业务转发模型，目前基于VLAN+用户MAC进行转发，存在先天缺陷，更好的替代方案是MACinMAC（IEEE 802.1ah）和PBT（Provider Backbone Transport）。
+ 
+List of references:参考资料清单
+[1]	DSL Froum, TR-101: Migration to Ethernet-Based DSLAggregation, April 2006
+[2]	DSL Froum, WT-141: Protocol Independent Management Model for TR-101 Compliant Access Nodes
+[3]	陈中洲, 胡韶锋, “MA5600 V800R005 流分类和QoS特性设计说明书”, June 2006
